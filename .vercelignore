@@ -1,0 +1,10 @@
+# Big folders not needed in production
+Worksheets/
+worksheets/
+server/scripts/
+server/migration-log.txt
+
+# Dev artefacts
+*.log
+.DS_Store
+node_modules/.cache/

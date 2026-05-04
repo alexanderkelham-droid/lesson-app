@@ -1,0 +1,362 @@
+const express = require('express');
+const crypto = require('crypto');
+const { PrismaClient } = require('@prisma/client');
+const { auth, requireRole } = require('../middleware/auth');
+
+const router = express.Router();
+const prisma = new PrismaClient();
+
+// Helper: enforce that the caller can mutate this plan
+async function assertCanMutatePlan(req, planId) {
+  const { userId, role } = req.user;
+  if (role === 'manager') return; // managers have full access
+  const plan = await prisma.lessonPlan.findUnique({
+    where: { id: planId },
+    select: { tutorId: true }
+  });
+  if (!plan) {
+    const err = new Error('Plan not found');
+    err.status = 404;
+    throw err;
+  }
+  if (role === 'tutor' && plan.tutorId !== userId) {
+    const err = new Error('Forbidden');
+    err.status = 403;
+    throw err;
+  }
+}
+
+function evaluateTrigger(condition, score) {
+  const match = condition.match(/score\s*([<>]=?|==)\s*(\d+(\.\d+)?)/);
+  if (!match) return false;
+  const operator = match[1];
+  const threshold = parseFloat(match[2]);
+  switch (operator) {
+    case '<':  return score < threshold;
+    case '>':  return score > threshold;
+    case '<=': return score <= threshold;
+    case '>=': return score >= threshold;
+    case '==': return score === threshold;
+    default:   return false;
+  }
+}
+
+// GET /api/lesson-plans - scoped by role
+router.get('/', auth, async (req, res, next) => {
+  try {
+    const { userId, role } = req.user;
+    const where = role === 'student' ? { studentId: userId }
+      : role === 'tutor' ? { tutorId: userId }
+      : {};
+
+    const plans = await prisma.lessonPlan.findMany({
+      where,
+      include: {
+        student: { select: { id: true, name: true, email: true } },
+        tutor:   { select: { id: true, name: true, email: true } },
+        items:   { orderBy: { sequenceOrder: 'asc' }, include: { sheet: { select: { id: true, title: true, subject: true, topic: true, difficultyLevel: true, sheetType: true } }, studentResponses: { orderBy: { createdAt: 'desc' }, take: 1, select: { id: true, score: true, completedAt: true, timeSpentSeconds: true } } } }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    res.json(plans);
+  } catch (err) { next(err); }
+});
+
+// GET /api/lesson-plans/:id
+router.get('/:id', auth, async (req, res, next) => {
+  try {
+    const plan = await prisma.lessonPlan.findUnique({
+      where: { id: parseInt(req.params.id) },
+      include: {
+        student: { select: { id: true, name: true, email: true } },
+        tutor:   { select: { id: true, name: true, email: true } },
+        items: {
+          orderBy: { sequenceOrder: 'asc' },
+          include: {
+            sheet: true,
+            studentResponses: {
+              orderBy: { createdAt: 'desc' }, take: 1,
+              select: { id: true, score: true, completedAt: true, timeSpentSeconds: true }
+            }
+          }
+        }
+      }
+    });
+    if (!plan) return res.status(404).json({ error: 'Plan not found' });
+
+    const { userId, role } = req.user;
+    if (role === 'student' && plan.studentId !== userId) return res.status(403).json({ error: 'Forbidden' });
+    if (role === 'tutor' && plan.tutorId !== userId) return res.status(403).json({ error: 'Forbidden' });
+
+    res.json(plan);
+  } catch (err) { next(err); }
+});
+
+// POST /api/lesson-plans - manager or tutor
+router.post('/', requireRole('manager', 'tutor'), async (req, res, next) => {
+  try {
+    const { studentId, tutorId, title, startDate, status, lessonDayOfWeek } = req.body;
+    if (!studentId || !tutorId || !title) {
+      return res.status(400).json({ error: 'studentId, tutorId, title required' });
+    }
+    const plan = await prisma.lessonPlan.create({
+      data: {
+        studentId: parseInt(studentId),
+        tutorId: parseInt(tutorId),
+        title,
+        startDate: startDate ? new Date(startDate) : null,
+        status: status || 'draft',
+        lessonDayOfWeek: lessonDayOfWeek !== undefined && lessonDayOfWeek !== '' ? parseInt(lessonDayOfWeek) : null
+      },
+      include: {
+        student: { select: { id: true, name: true, email: true } },
+        tutor:   { select: { id: true, name: true, email: true } }
+      }
+    });
+    res.status(201).json(plan);
+  } catch (err) { next(err); }
+});
+
+// PUT /api/lesson-plans/:id
+router.put('/:id', requireRole('manager', 'tutor'), async (req, res, next) => {
+  try {
+    const planId = parseInt(req.params.id);
+    await assertCanMutatePlan(req, planId);
+    const { title, startDate, status, tutorId, lessonDayOfWeek } = req.body;
+    // Tutors cannot reassign plans to another tutor
+    const safeTutorId = req.user.role === 'manager' ? tutorId : undefined;
+    const plan = await prisma.lessonPlan.update({
+      where: { id: planId },
+      data: {
+        ...(title && { title }),
+        ...(startDate && { startDate: new Date(startDate) }),
+        ...(status && { status }),
+        ...(safeTutorId && { tutorId: parseInt(safeTutorId) }),
+        ...(lessonDayOfWeek !== undefined && { lessonDayOfWeek: lessonDayOfWeek !== '' && lessonDayOfWeek !== null ? parseInt(lessonDayOfWeek) : null })
+      }
+    });
+    res.json(plan);
+  } catch (err) { next(err); }
+});
+
+// DELETE /api/lesson-plans/:id - manager only
+router.delete('/:id', requireRole('manager'), async (req, res, next) => {
+  try {
+    await prisma.lessonPlan.delete({ where: { id: parseInt(req.params.id) } });
+    res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// POST /api/lesson-plans/:id/items - add sheet to plan
+router.post('/:id/items', requireRole('manager', 'tutor'), async (req, res, next) => {
+  try {
+    const planId = parseInt(req.params.id);
+    await assertCanMutatePlan(req, planId);
+    const { sheetId, scheduledDate, dueDate, status, tutorNotes } = req.body;
+    if (!sheetId) return res.status(400).json({ error: 'sheetId required' });
+
+    const lastItem = await prisma.lessonPlanItem.findFirst({
+      where: { lessonPlanId: planId },
+      orderBy: { sequenceOrder: 'desc' }
+    });
+    const sequenceOrder = lastItem ? lastItem.sequenceOrder + 1 : 1;
+
+    const item = await prisma.lessonPlanItem.create({
+      data: {
+        lessonPlanId: planId,
+        sheetId: parseInt(sheetId),
+        sequenceOrder,
+        scheduledDate: scheduledDate ? new Date(scheduledDate) : null,
+        dueDate: dueDate ? new Date(dueDate) : null,
+        status: status || 'available',
+        tutorNotes: tutorNotes || null
+      },
+      include: { sheet: true }
+    });
+    res.status(201).json(item);
+  } catch (err) { next(err); }
+});
+
+// PUT /api/lesson-plans/:id/items/:itemId
+router.put('/:id/items/:itemId', requireRole('manager', 'tutor'), async (req, res, next) => {
+  try {
+    await assertCanMutatePlan(req, parseInt(req.params.id));
+    const { scheduledDate, dueDate, status, sequenceOrder, tutorNotes } = req.body;
+    const item = await prisma.lessonPlanItem.update({
+      where: { id: parseInt(req.params.itemId) },
+      data: {
+        ...(scheduledDate !== undefined && { scheduledDate: scheduledDate ? new Date(scheduledDate) : null }),
+        ...(dueDate !== undefined && { dueDate: dueDate ? new Date(dueDate) : null }),
+        ...(status && { status }),
+        ...(sequenceOrder !== undefined && { sequenceOrder: parseInt(sequenceOrder) }),
+        ...(tutorNotes !== undefined && { tutorNotes })
+      },
+      include: { sheet: true }
+    });
+    res.json(item);
+  } catch (err) { next(err); }
+});
+
+// DELETE /api/lesson-plans/:id/items/:itemId
+router.delete('/:id/items/:itemId', requireRole('manager', 'tutor'), async (req, res, next) => {
+  try {
+    await assertCanMutatePlan(req, parseInt(req.params.id));
+    await prisma.lessonPlanItem.delete({ where: { id: parseInt(req.params.itemId) } });
+    res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// PATCH /api/lesson-plans/:id/items/reorder
+router.patch('/:id/items/reorder', requireRole('manager', 'tutor'), async (req, res, next) => {
+  try {
+    await assertCanMutatePlan(req, parseInt(req.params.id));
+    const { orderedIds } = req.body; // array of item IDs in new order
+    if (!Array.isArray(orderedIds)) return res.status(400).json({ error: 'orderedIds must be an array' });
+
+    await prisma.$transaction(
+      orderedIds.map((itemId, idx) =>
+        prisma.lessonPlanItem.update({
+          where: { id: itemId },
+          data: { sequenceOrder: idx + 1 }
+        })
+      )
+    );
+    res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// POST /api/lesson-plans/:id/process-completion
+router.post('/:id/process-completion', auth, async (req, res, next) => {
+  try {
+    const planId = parseInt(req.params.id);
+    const { lessonPlanItemId, studentResponseId } = req.body;
+    if (!lessonPlanItemId || !studentResponseId) {
+      return res.status(400).json({ error: 'lessonPlanItemId and studentResponseId required' });
+    }
+
+    const item = await prisma.lessonPlanItem.findFirst({
+      where: { id: parseInt(lessonPlanItemId), lessonPlanId: planId }
+    });
+    if (!item) return res.status(404).json({ error: 'Lesson plan item not found' });
+
+    const response = await prisma.studentResponse.findUnique({
+      where: { id: parseInt(studentResponseId) }
+    });
+    if (!response) return res.status(404).json({ error: 'Student response not found' });
+
+    const score = response.score ?? 0;
+
+    // Mark item completed
+    await prisma.lessonPlanItem.update({
+      where: { id: item.id },
+      data: { status: 'completed' }
+    });
+
+    // Check follow-up rules ordered by priority
+    const rules = await prisma.followUpRule.findMany({
+      where: { sourceSheetId: item.sheetId },
+      orderBy: { priority: 'asc' }
+    });
+
+    let followUpCreated = null;
+    for (const rule of rules) {
+      if (evaluateTrigger(rule.triggerCondition, score)) {
+        // Shift all items after current one up by 1
+        await prisma.lessonPlanItem.updateMany({
+          where: { lessonPlanId: planId, sequenceOrder: { gt: item.sequenceOrder } },
+          data: { sequenceOrder: { increment: 1 } }
+        });
+
+        // Insert follow-up item immediately after current
+        const newItem = await prisma.lessonPlanItem.create({
+          data: {
+            lessonPlanId: planId,
+            sheetId: rule.followUpSheetId,
+            sequenceOrder: item.sequenceOrder + 1,
+            status: 'available',
+            autoGenerated: true
+          },
+          include: { sheet: { select: { id: true, title: true, subject: true, topic: true } } }
+        });
+
+        await prisma.followUpLog.create({
+          data: {
+            lessonPlanId: planId,
+            studentId: response.studentId,
+            triggerRuleId: rule.id,
+            sourceSheetId: item.sheetId,
+            followUpSheetId: rule.followUpSheetId,
+            studentScore: score
+          }
+        });
+
+        followUpCreated = newItem;
+        break; // Apply only the highest-priority matching rule
+      }
+    }
+
+    // If no follow-up triggered, unlock the next sequential item
+    if (!followUpCreated) {
+      const nextItem = await prisma.lessonPlanItem.findFirst({
+        where: { lessonPlanId: planId, sequenceOrder: item.sequenceOrder + 1 }
+      });
+      if (nextItem && nextItem.status === 'locked') {
+        await prisma.lessonPlanItem.update({
+          where: { id: nextItem.id },
+          data: { status: 'available' }
+        });
+      }
+    }
+
+    res.json({ success: true, followUpCreated: !!followUpCreated, followUpItem: followUpCreated });
+  } catch (err) { next(err); }
+});
+
+// GET /api/lesson-plans/:id/follow-up-logs
+router.get('/:id/follow-up-logs', auth, async (req, res, next) => {
+  try {
+    const logs = await prisma.followUpLog.findMany({
+      where: { lessonPlanId: parseInt(req.params.id) },
+      include: {
+        triggerRule: true,
+        sourceSheet:   { select: { id: true, title: true } },
+        followUpSheet: { select: { id: true, title: true } }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+    res.json(logs);
+  } catch (err) { next(err); }
+});
+
+// GET /api/lesson-plans/:id/live-session - get/create the whiteboard room id for this plan
+router.get('/:id/live-session', auth, async (req, res, next) => {
+  try {
+    const planId = parseInt(req.params.id);
+    const { userId, role } = req.user;
+
+    const plan = await prisma.lessonPlan.findUnique({
+      where: { id: planId },
+      select: { id: true, studentId: true, tutorId: true, boardUuid: true }
+    });
+    if (!plan) return res.status(404).json({ error: 'Plan not found' });
+
+    // Access control
+    if (role === 'student' && plan.studentId !== userId) return res.status(403).json({ error: 'Forbidden' });
+    if (role === 'tutor' && plan.tutorId !== userId) return res.status(403).json({ error: 'Forbidden' });
+
+    // Generate boardUuid if missing - this is the room ID for tldraw sync
+    let boardUuid = plan.boardUuid;
+    if (!boardUuid) {
+      boardUuid = crypto.randomUUID();
+      await prisma.lessonPlan.update({
+        where: { id: planId },
+        data: { boardUuid }
+      });
+    }
+
+    res.json({ boardUuid });
+  } catch (err) { next(err); }
+});
+
+module.exports = router;
