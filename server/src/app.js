@@ -14,18 +14,33 @@ const sessionRoutes = require('./routes/sessions');
 
 const app = express();
 
-// CORS: in production we serve frontend + API from the same Vercel origin so
-// CORS isn't strictly needed, but allow CLIENT_URL for local dev / staging.
-const allowedOrigins = (process.env.CLIENT_URL || 'http://localhost:5173')
+// CORS: frontend and API are served from the same origin on Vercel, so CORS
+// isn't strictly required. We allow:
+//   - Any *.vercel.app domain (covers production + preview deploys)
+//   - Any explicit CLIENT_URL values (comma-separated, for custom domains)
+//   - localhost on any port (for local dev)
+// Auth is via JWT bearer tokens, not cookies, so credentials:false is safe.
+const explicitOrigins = (process.env.CLIENT_URL || 'http://localhost:5173')
   .split(',')
-  .map(s => s.trim());
+  .map(s => s.trim())
+  .filter(Boolean);
+
+function isAllowedOrigin(origin) {
+  if (!origin) return true; // same-origin / curl / non-browser clients
+  if (explicitOrigins.includes(origin)) return true;
+  try {
+    const u = new URL(origin);
+    if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') return true;
+    if (u.hostname.endsWith('.vercel.app')) return true;
+  } catch { /* invalid URL */ }
+  return false;
+}
 
 app.use(cors({
   origin: (origin, cb) => {
-    if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+    if (isAllowedOrigin(origin)) return cb(null, true);
     cb(new Error('Not allowed by CORS'));
   },
-  credentials: true,
 }));
 app.use(express.json({ limit: '2mb' }));
 
