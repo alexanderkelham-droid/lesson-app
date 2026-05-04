@@ -25,7 +25,11 @@ export default function Login() {
       const u = await login(email.trim(), password)
       navigate(`/${u.role}`, { replace: true })
     } catch (err) {
-      setError(err.response?.data?.error || 'Login failed')
+      const e = err.response?.data?.error
+      const msg = typeof e === 'string'
+        ? e
+        : (e?.message || err.message || 'Login failed')
+      setError(msg)
     } finally {
       setLoading(false)
     }

@@ -4,11 +4,12 @@
   "outputDirectory": "client/dist",
   "installCommand": "npm install",
   "functions": {
-    "api/[...path].js": {
+    "api/index.js": {
       "maxDuration": 30
     }
   },
   "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }
