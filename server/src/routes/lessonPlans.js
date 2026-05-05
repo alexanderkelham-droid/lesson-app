@@ -1,10 +1,9 @@
 const express = require('express');
 const crypto = require('crypto');
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../prisma');
 const { auth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
-const prisma = new PrismaClient();
 
 // Helper: enforce that the caller can mutate this plan
 async function assertCanMutatePlan(req, planId) {
