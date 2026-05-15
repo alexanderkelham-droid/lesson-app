@@ -45,3 +45,4 @@ prisma/runtime/
 coverage/
 .nyc_output/
 *.tmp
+.claude/
