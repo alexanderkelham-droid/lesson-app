@@ -186,17 +186,19 @@ function SheetLibrary({ sheets, planItems, onAdd, onPreview, search, onSearchCha
     return sorted
   }, [filtered])
 
-  // Auto-expand all when searching
+  // Auto-expand all when searching. Only depends on `search` — `tree` would
+  // be a fresh reference every render and cause an infinite loop. We re-read
+  // `tree` inside the effect; it's already up-to-date by the time this runs.
   useEffect(() => {
-    if (search) {
-      const all = {}
-      tree.forEach(s => {
-        all[s.subject] = true
-        s.topics.forEach(t => { all[`${s.subject}/${t.topic}`] = true })
-      })
-      setExpanded(all)
-    }
-  }, [search, tree])
+    if (!search) return
+    const all = {}
+    tree.forEach(s => {
+      all[s.subject] = true
+      s.topics.forEach(t => { all[`${s.subject}/${t.topic}`] = true })
+    })
+    setExpanded(all)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search])
 
   function toggleExpand(key) {
     setExpanded(prev => ({ ...prev, [key]: !prev[key] }))
