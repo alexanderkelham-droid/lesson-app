@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Tldraw } from 'tldraw'
 import { useSyncDemo } from '@tldraw/sync'
@@ -297,13 +297,17 @@ function SheetPanel({ sheet, onClose, sheetLoading }) {
 }
 
 function Whiteboard({ boardUuid, isTeacher, user, items, planDetails, sidebarOpen, setSidebarOpen, activeSheet, sheetLoading, onOpenSheet, onCloseSheet, onEndSession, onAddSheet, onPreviewSheet }) {
+  // Memoize userInfo — a fresh object literal each render makes tldraw's
+  // sync hook re-apply user state every render, causing an infinite loop.
+  const userInfo = useMemo(() => ({
+    id: String(user?.id || 'anon'),
+    name: user?.name || 'User',
+    color: isTeacher ? '#a855f7' : '#3b82f6'
+  }), [user?.id, user?.name, isTeacher])
+
   const store = useSyncDemo({
     roomId: `lesson-app-${boardUuid}`,
-    userInfo: {
-      id: String(user?.id || 'anon'),
-      name: user?.name || 'User',
-      color: isTeacher ? '#a855f7' : '#3b82f6'
-    }
+    userInfo
   })
 
   return (
