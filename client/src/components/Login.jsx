@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate, Link, Navigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import RedwoodLogo from './shared/RedwoodLogo'
 
@@ -11,10 +11,10 @@ export default function Login() {
   const [error, setError]       = useState('')
   const [loading, setLoading]   = useState(false)
 
-  // Already logged in → redirect
+  // Already logged in → redirect (declarative — calling navigate() during
+  // render causes an infinite re-render loop).
   if (user) {
-    navigate(`/${user.role}`, { replace: true })
-    return null
+    return <Navigate to={`/${user.role}`} replace />
   }
 
   async function handleSubmit(e) {
