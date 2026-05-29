@@ -80,7 +80,7 @@ export default function MarketingHome() {
               Tutoring · Retford & Doncaster
             </span>
             <h1 className="font-serif text-4xl sm:text-5xl lg:text-6xl font-bold leading-[1.05] mb-5">
-              Teaching the way <span className="text-redwood-300 italic">your child learns</span>.
+              Teaching the way <span className="text-redwood-300 italic">you learn</span>.
             </h1>
             <p className="text-lg text-forest-50 leading-relaxed mb-7 max-w-lg">
               Quality tuition in English, Maths, 11+ preparation and more — with experienced, DBS-checked teachers who tailor every lesson to the individual child.

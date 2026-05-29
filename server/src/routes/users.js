@@ -229,4 +229,61 @@ router.delete('/:id', auth, requireRole('manager'), async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// POST /api/users/:id/reset-password
+// Manager can reset any student or tutor. Tutor can reset password of students
+// who are assigned to one of their lesson plans.
+// Stored passwords are bcrypt hashes — we can't "view" the old one. This sets
+// a new password and returns it once so the staff member can share it with
+// the student.
+router.post('/:id/reset-password', auth, async (req, res, next) => {
+  try {
+    const { userId, role } = req.user;
+    if (role === 'student') return res.status(403).json({ error: 'Forbidden' });
+
+    const targetId = parseInt(req.params.id);
+    const { password: providedPassword } = req.body;
+
+    const target = await prisma.user.findUnique({
+      where: { id: targetId },
+      select: { id: true, role: true }
+    });
+    if (!target) return res.status(404).json({ error: 'User not found' });
+    if (target.role === 'manager') {
+      return res.status(403).json({ error: 'Managers must reset their own password' });
+    }
+
+    // Permission check for tutors
+    if (role === 'tutor') {
+      if (target.role !== 'student') {
+        return res.status(403).json({ error: 'Tutors can only reset student passwords' });
+      }
+      const planCount = await prisma.lessonPlan.count({
+        where: { studentId: targetId, tutorId: userId }
+      });
+      if (planCount === 0) {
+        return res.status(403).json({ error: 'You can only reset passwords for students you teach' });
+      }
+    }
+
+    // Use the provided password or generate a friendly one
+    function generate() {
+      const adj = ['quick', 'happy', 'sunny', 'brave', 'bright', 'kind', 'eager'];
+      const noun = ['oak', 'pine', 'fern', 'willow', 'maple', 'birch', 'cedar'];
+      const num = Math.floor(100 + Math.random() * 900);
+      return `${adj[Math.floor(Math.random() * adj.length)]}-${noun[Math.floor(Math.random() * noun.length)]}-${num}`;
+    }
+    const newPassword = providedPassword && providedPassword.length >= 4 ? providedPassword : generate();
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+
+    await prisma.user.update({
+      where: { id: targetId },
+      data: { passwordHash }
+    });
+
+    // Return new password ONCE so staff can share with student. Never stored
+    // in plaintext after this response.
+    res.json({ success: true, newPassword });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;

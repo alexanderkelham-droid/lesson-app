@@ -95,7 +95,7 @@ router.get('/:id', auth, async (req, res, next) => {
 // POST /api/lesson-plans - manager or tutor
 router.post('/', requireRole('manager', 'tutor'), async (req, res, next) => {
   try {
-    const { studentId, tutorId, title, startDate, status, lessonDayOfWeek } = req.body;
+    const { studentId, tutorId, title, startDate, status, lessonDayOfWeek, studentNotes } = req.body;
     if (!studentId || !tutorId || !title) {
       return res.status(400).json({ error: 'studentId, tutorId, title required' });
     }
@@ -106,7 +106,8 @@ router.post('/', requireRole('manager', 'tutor'), async (req, res, next) => {
         title,
         startDate: startDate ? new Date(startDate) : null,
         status: status || 'draft',
-        lessonDayOfWeek: lessonDayOfWeek !== undefined && lessonDayOfWeek !== '' ? parseInt(lessonDayOfWeek) : null
+        lessonDayOfWeek: lessonDayOfWeek !== undefined && lessonDayOfWeek !== '' ? parseInt(lessonDayOfWeek) : null,
+        studentNotes: studentNotes || null
       },
       include: {
         student: { select: { id: true, name: true, email: true } },
@@ -122,7 +123,7 @@ router.put('/:id', requireRole('manager', 'tutor'), async (req, res, next) => {
   try {
     const planId = parseInt(req.params.id);
     await assertCanMutatePlan(req, planId);
-    const { title, startDate, status, tutorId, lessonDayOfWeek } = req.body;
+    const { title, startDate, status, tutorId, lessonDayOfWeek, studentNotes } = req.body;
     // Tutors cannot reassign plans to another tutor
     const safeTutorId = req.user.role === 'manager' ? tutorId : undefined;
     const plan = await prisma.lessonPlan.update({
@@ -132,7 +133,8 @@ router.put('/:id', requireRole('manager', 'tutor'), async (req, res, next) => {
         ...(startDate && { startDate: new Date(startDate) }),
         ...(status && { status }),
         ...(safeTutorId && { tutorId: parseInt(safeTutorId) }),
-        ...(lessonDayOfWeek !== undefined && { lessonDayOfWeek: lessonDayOfWeek !== '' && lessonDayOfWeek !== null ? parseInt(lessonDayOfWeek) : null })
+        ...(lessonDayOfWeek !== undefined && { lessonDayOfWeek: lessonDayOfWeek !== '' && lessonDayOfWeek !== null ? parseInt(lessonDayOfWeek) : null }),
+        ...(studentNotes !== undefined && { studentNotes: studentNotes || null })
       }
     });
     res.json(plan);
@@ -152,8 +154,10 @@ router.post('/:id/items', requireRole('manager', 'tutor'), async (req, res, next
   try {
     const planId = parseInt(req.params.id);
     await assertCanMutatePlan(req, planId);
-    const { sheetId, scheduledDate, dueDate, status, tutorNotes } = req.body;
-    if (!sheetId) return res.status(400).json({ error: 'sheetId required' });
+    const { sheetId, customTitle, customType, scheduledDate, dueDate, status, tutorNotes } = req.body;
+    if (!sheetId && !customTitle) {
+      return res.status(400).json({ error: 'Either sheetId or customTitle is required' });
+    }
 
     const lastItem = await prisma.lessonPlanItem.findFirst({
       where: { lessonPlanId: planId },
@@ -164,7 +168,9 @@ router.post('/:id/items', requireRole('manager', 'tutor'), async (req, res, next
     const item = await prisma.lessonPlanItem.create({
       data: {
         lessonPlanId: planId,
-        sheetId: parseInt(sheetId),
+        sheetId: sheetId ? parseInt(sheetId) : null,
+        customTitle: !sheetId ? customTitle : null,
+        customType: !sheetId ? (customType || 'other') : null,
         sequenceOrder,
         scheduledDate: scheduledDate ? new Date(scheduledDate) : null,
         dueDate: dueDate ? new Date(dueDate) : null,

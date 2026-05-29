@@ -179,23 +179,33 @@ function ImageBased({ question, value, onChange, readOnly }) {
 // ─── Score display ────────────────────────────────────────────────────────
 
 function ScoreDisplay({ score, followUp, onContinue }) {
-  const good = score >= 70
+  const needsReview = score == null
+  const good = !needsReview && score >= 70
   return (
     <div className="text-center py-8 space-y-4">
-      <div className={`inline-flex items-center justify-center w-20 h-20 rounded-full text-3xl font-bold mb-2 ${good ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
-        {score}%
+      <div className={`inline-flex items-center justify-center w-20 h-20 rounded-full text-3xl font-bold mb-2 ${
+        needsReview ? 'bg-gray-100 text-gray-600'
+        : good ? 'bg-green-100 text-green-700'
+        : 'bg-red-100 text-red-600'
+      }`}>
+        {needsReview ? '✎' : `${score}%`}
       </div>
       <h3 className="text-xl font-bold text-gray-900">
-        {good ? '🎉 Great work!' : '📚 Keep practising!'}
+        {needsReview ? 'Submitted — awaiting tutor review' : good ? '🎉 Great work!' : '📚 Keep practising!'}
       </h3>
-      {followUp ? (
+      {needsReview && (
+        <p className="text-gray-500 text-sm max-w-sm mx-auto">
+          Your tutor will grade your answers and give you a score next session.
+        </p>
+      )}
+      {!needsReview && (followUp ? (
         <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800 max-w-sm mx-auto">
           <p className="font-semibold mb-1">A follow-up sheet has been added</p>
           <p>"{followUp.sheet?.title}" has been added to your lesson plan to help you strengthen this topic.</p>
         </div>
       ) : (
         <p className="text-gray-500 text-sm">Your next sheet is now unlocked.</p>
-      )}
+      ))}
       <button onClick={onContinue} className="btn-primary mt-4">
         Back to Lesson Plan
       </button>

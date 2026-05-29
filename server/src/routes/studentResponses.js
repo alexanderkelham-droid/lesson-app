@@ -12,6 +12,20 @@ function calculateScore(contentJson, responsesJson) {
   let earnedPoints = 0;
 
   for (const q of questions) {
+    // Free-text / image-based questions can't be auto-graded. Exclude them
+    // from both numerator and denominator so the score reflects only what
+    // we can actually verify. Tutor can override with manualScore.
+    if (q.type === 'free_text' || q.type === 'image_based') continue;
+
+    // Auto-gradeable questions need a `correct` value to be counted. If
+    // the sheet was migrated without one, exclude it from scoring so it
+    // doesn't unfairly drag scores down to 0.
+    const correctRaw = q.type === 'ordering' ? q.correct_order : q.correct;
+    const hasCorrect = Array.isArray(correctRaw)
+      ? correctRaw.length > 0
+      : !!correctRaw;
+    if (!hasCorrect) continue;
+
     const points = q.points || 1;
     totalPoints += points;
     const answer = responsesJson[q.id];
@@ -32,14 +46,12 @@ function calculateScore(contentJson, responsesJson) {
         break;
       }
       case 'matching': {
-        // answer: { leftItem: rightItem, ... }
         const pairs = q.pairs || [];
         const allCorrect = pairs.every(p => answer[p.left] === p.right);
         if (allCorrect) earnedPoints += points;
         break;
       }
       case 'ordering': {
-        // answer: array of items in user's order
         const correct = q.correct_order || [];
         const isCorrect = Array.isArray(answer) &&
           answer.length === correct.length &&
@@ -47,16 +59,12 @@ function calculateScore(contentJson, responsesJson) {
         if (isCorrect) earnedPoints += points;
         break;
       }
-      case 'free_text':
-      case 'image_based': {
-        // Award full points for any non-empty answer (manual grading)
-        if (answer && String(answer).trim().length > 0) earnedPoints += points;
-        break;
-      }
     }
   }
 
-  return totalPoints > 0 ? Math.round((earnedPoints / totalPoints) * 100) : 0;
+  // If nothing is auto-gradeable, score is null (needs manual review).
+  if (totalPoints === 0) return null;
+  return Math.round((earnedPoints / totalPoints) * 100);
 }
 
 // GET /api/student-responses

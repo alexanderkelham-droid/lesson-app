@@ -37,6 +37,11 @@ export default function StudentDetail() {
   const [markScore, setMarkScore]   = useState('')
   const [markNotes, setMarkNotes]   = useState('')
   const [marking, setMarking]       = useState(false)
+  const [showResetPassword, setShowResetPassword] = useState(false)
+  const [resetPasswordValue, setResetPasswordValue] = useState('')
+  const [resetGenerated, setResetGenerated] = useState(null)
+  const [resetLoading, setResetLoading]   = useState(false)
+  const [resetError, setResetError]       = useState('')
 
   async function load() {
     try {
@@ -85,26 +90,25 @@ export default function StudentDetail() {
     }
     setMarking(true)
     try {
-      // Save tutor note on the item if provided
-      if (markNotes) {
-        await api.put(`/lesson-plans/${activePlan.id}/items/${markCompleteItem.id}`, {
-          tutorNotes: markNotes
+      const isCustom = !markCompleteItem.sheetId
+
+      // For sheet items, create a tutor-graded response
+      if (!isCustom) {
+        await api.post('/student-responses', {
+          sheetId: markCompleteItem.sheetId,
+          lessonPlanItemId: markCompleteItem.id,
+          studentId: parseInt(studentId),
+          responsesJson: { _tutorGraded: true, _note: markNotes || undefined },
+          manualScore: scoreNum,
+          timeSpentSeconds: null
         })
       }
 
-      // Create a tutor-graded student response with optional manual score
-      await api.post('/student-responses', {
-        sheetId: markCompleteItem.sheetId,
-        lessonPlanItemId: markCompleteItem.id,
-        studentId: parseInt(studentId),
-        responsesJson: { _tutorGraded: true, _note: markNotes || undefined },
-        manualScore: scoreNum,
-        timeSpentSeconds: null
-      })
-
-      // POST /student-responses sets status to 'in_progress'; bump to 'completed'
+      // Update the item: tutor notes + status. For custom items, this is the
+      // only record of completion (no associated Sheet to grade).
       await api.put(`/lesson-plans/${activePlan.id}/items/${markCompleteItem.id}`, {
-        status: 'completed'
+        status: 'completed',
+        ...(markNotes && { tutorNotes: markNotes })
       })
 
       setMarkCompleteItem(null)
@@ -116,6 +120,29 @@ export default function StudentDetail() {
     } finally {
       setMarking(false)
     }
+  }
+
+  async function handleResetPassword() {
+    setResetError('')
+    setResetLoading(true)
+    try {
+      const res = await api.post(`/users/${studentId}/reset-password`, {
+        password: resetPasswordValue || undefined
+      })
+      setResetGenerated(res.data.newPassword)
+      setResetPasswordValue('')
+    } catch (err) {
+      setResetError(err.response?.data?.error || 'Failed to reset password')
+    } finally {
+      setResetLoading(false)
+    }
+  }
+
+  function closeResetPassword() {
+    setShowResetPassword(false)
+    setResetGenerated(null)
+    setResetPasswordValue('')
+    setResetError('')
   }
 
   async function handleDeleteStudent() {
@@ -179,14 +206,22 @@ export default function StudentDetail() {
             </div>
             <div className="flex flex-col items-end gap-2">
               {user?.role === 'manager' && (
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap justify-end">
                   <button onClick={() => setShowEdit(true)} className="btn-secondary text-xs py-1.5">
                     Edit Profile
+                  </button>
+                  <button onClick={() => setShowResetPassword(true)} className="text-xs py-1.5 px-3 text-brand-700 hover:bg-brand-50 rounded-lg border border-brand-200 transition-colors">
+                    Reset Password
                   </button>
                   <button onClick={() => setConfirmDeleteStudent(true)} className="text-xs py-1.5 px-3 text-red-600 hover:bg-red-50 rounded-lg border border-red-200 transition-colors">
                     Delete
                   </button>
                 </div>
+              )}
+              {user?.role === 'tutor' && (
+                <button onClick={() => setShowResetPassword(true)} className="text-xs py-1.5 px-3 text-brand-700 hover:bg-brand-50 rounded-lg border border-brand-200 transition-colors">
+                  Reset Password
+                </button>
               )}
               {/* Stats */}
               <div className="flex gap-6 text-right">
@@ -276,12 +311,24 @@ export default function StudentDetail() {
                       <tr key={item.id} className="hover:bg-gray-50">
                         <td className="px-4 py-3 text-gray-400 font-mono">{item.sequenceOrder}</td>
                         <td className="px-4 py-3">
-                          <p className="font-medium text-gray-800">{item.sheet.title}</p>
+                          {item.sheet ? (
+                            <p className="font-medium text-gray-800">{item.sheet.title}</p>
+                          ) : (
+                            <p className="font-medium text-gray-800">
+                              <span className="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-semibold mr-1">
+                                {item.customType === 'ixl_maths' ? 'IXL Maths'
+                                  : item.customType === 'ixl_english' ? 'IXL English'
+                                  : item.customType === 'paper' ? 'Paper'
+                                  : 'Custom'}
+                              </span>
+                              {item.customTitle}
+                            </p>
+                          )}
                           {item.autoGenerated && (
                             <span className="text-xs text-purple-600">Auto follow-up</span>
                           )}
                         </td>
-                        <td className="px-4 py-3 text-gray-500 hidden sm:table-cell">{item.sheet.subject}</td>
+                        <td className="px-4 py-3 text-gray-500 hidden sm:table-cell">{item.sheet?.subject || '—'}</td>
                         <td className="px-4 py-3">
                           <span className={`badge ${cfg.color}`}>{cfg.label}</span>
                         </td>
@@ -362,6 +409,60 @@ export default function StudentDetail() {
             load()
           }}
         />
+      )}
+
+      {/* Reset password modal */}
+      {showResetPassword && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={closeResetPassword}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+            {!resetGenerated ? (
+              <>
+                <h2 className="text-lg font-bold text-gray-900 mb-1">Reset password</h2>
+                <p className="text-sm text-gray-500 mb-4">
+                  Set a new password for <strong>{student?.name}</strong>. Leave blank to generate a memorable one.
+                </p>
+                <div>
+                  <label className="text-xs font-medium text-gray-600">New password (optional)</label>
+                  <input
+                    type="text"
+                    value={resetPasswordValue}
+                    onChange={e => setResetPasswordValue(e.target.value)}
+                    placeholder="Leave blank to generate"
+                    className="input text-sm mt-0.5"
+                    autoFocus
+                  />
+                  <p className="text-xs text-gray-400 mt-1">Minimum 4 characters, or leave blank.</p>
+                </div>
+                {resetError && (
+                  <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg mt-3">{resetError}</p>
+                )}
+                <div className="flex gap-2 mt-5">
+                  <button onClick={closeResetPassword} className="btn-secondary flex-1" disabled={resetLoading}>Cancel</button>
+                  <button onClick={handleResetPassword} className="btn-primary flex-1" disabled={resetLoading}>
+                    {resetLoading ? 'Resetting...' : 'Reset password'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h2 className="text-lg font-bold text-gray-900 mb-1">Password reset</h2>
+                <p className="text-sm text-gray-500 mb-4">
+                  Share this new password with <strong>{student?.name}</strong>. It won't be shown again.
+                </p>
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-center">
+                  <p className="font-mono text-lg font-bold text-gray-900 break-all">{resetGenerated}</p>
+                </div>
+                <button
+                  onClick={() => navigator.clipboard?.writeText(resetGenerated)}
+                  className="btn-secondary w-full mt-3 text-sm"
+                >
+                  📋 Copy to clipboard
+                </button>
+                <button onClick={closeResetPassword} className="btn-primary w-full mt-2">Done</button>
+              </>
+            )}
+          </div>
+        </div>
       )}
 
       {/* Mark-complete modal */}

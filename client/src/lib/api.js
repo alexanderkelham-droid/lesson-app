@@ -12,13 +12,20 @@ api.interceptors.request.use(config => {
   return config
 })
 
-// Redirect to login on 401
+// Redirect to login on 401, except for the login endpoint itself (so a bad-
+// password attempt doesn't cause a full reload that wipes the typed email).
 api.interceptors.response.use(
   res => res,
   err => {
     if (err.response?.status === 401) {
-      localStorage.removeItem('token')
-      window.location.href = '/login'
+      const url = err.config?.url || ''
+      const isLoginAttempt = url.endsWith('/auth/login')
+      if (!isLoginAttempt) {
+        localStorage.removeItem('token')
+        if (!window.location.pathname.startsWith('/login')) {
+          window.location.href = '/login'
+        }
+      }
     }
     return Promise.reject(err)
   }
