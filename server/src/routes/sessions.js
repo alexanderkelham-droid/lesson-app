@@ -131,6 +131,69 @@ router.put('/:id', requireRole('manager', 'tutor'), async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// PATCH /api/sessions/:id/live-state - update live-room state
+// Teacher: can change activeItemId and set marks
+// Student: can update liveAnswers
+router.patch('/:id/live-state', auth, async (req, res, next) => {
+  try {
+    const sessionId = parseInt(req.params.id);
+    const session = await prisma.lessonSession.findUnique({
+      where: { id: sessionId },
+      include: { lessonPlan: { select: { studentId: true, tutorId: true } } }
+    });
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+
+    const { userId, role } = req.user;
+    const isStudent = role === 'student' && session.lessonPlan.studentId === userId;
+    const isTutor   = role === 'tutor'   && session.lessonPlan.tutorId === userId;
+    const isManager = role === 'manager';
+    if (!isStudent && !isTutor && !isManager) return res.status(403).json({ error: 'Forbidden' });
+
+    const { activeItemId, answers, marks } = req.body;
+
+    const data = { liveUpdatedAt: new Date() };
+
+    // Teacher (tutor/manager) can set activeItemId and marks
+    if ((isTutor || isManager)) {
+      if (activeItemId !== undefined) data.activeItemId = activeItemId ? parseInt(activeItemId) : null;
+      if (marks !== undefined) data.liveMarks = marks;
+    }
+
+    // Student can only update their own answers
+    if (answers !== undefined) {
+      // Merge with existing
+      const current = (session.liveAnswers && typeof session.liveAnswers === 'object') ? session.liveAnswers : {};
+      data.liveAnswers = { ...current, ...answers };
+    }
+
+    const updated = await prisma.lessonSession.update({
+      where: { id: sessionId },
+      data
+    });
+    res.json(updated);
+  } catch (err) { next(err); }
+});
+
+// GET /api/sessions/:id/live-state - lightweight read for polling
+router.get('/:id/live-state', auth, async (req, res, next) => {
+  try {
+    const sessionId = parseInt(req.params.id);
+    const { userId, role } = req.user;
+    const session = await prisma.lessonSession.findUnique({
+      where: { id: sessionId },
+      select: {
+        id: true, activeItemId: true, liveAnswers: true, liveMarks: true,
+        liveUpdatedAt: true, attendedAt: true,
+        lessonPlan: { select: { studentId: true, tutorId: true } }
+      }
+    });
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+    if (role === 'student' && session.lessonPlan.studentId !== userId) return res.status(403).json({ error: 'Forbidden' });
+    if (role === 'tutor' && session.lessonPlan.tutorId !== userId) return res.status(403).json({ error: 'Forbidden' });
+    res.json(session);
+  } catch (err) { next(err); }
+});
+
 // DELETE /api/sessions/:id
 router.delete('/:id', requireRole('manager', 'tutor'), async (req, res, next) => {
   try {

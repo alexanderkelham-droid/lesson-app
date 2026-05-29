@@ -6,6 +6,7 @@ import 'tldraw/tldraw.css'
 import { useAuth } from '../../context/AuthContext'
 import LoadingSpinner from './LoadingSpinner'
 import SheetPreviewModal from './SheetPreviewModal'
+import InteractiveSheet from './InteractiveSheet'
 import api from '../../lib/api'
 
 export default function LiveSessionView() {
@@ -15,11 +16,12 @@ export default function LiveSessionView() {
 
   const [planDetails, setPlanDetails] = useState(null)
   const [boardUuid, setBoardUuid]     = useState(null)
+  const [sessionId, setSessionId]     = useState(null)
+  const [activeItemId, setActiveItemId] = useState(null)
   const [loading, setLoading]         = useState(true)
   const [error, setError]             = useState('')
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [activeSheet, setActiveSheet] = useState(null)
-  const [sheetLoading, setSheetLoading] = useState(false)
+  const [mainView, setMainView]       = useState('sheet') // 'sheet' | 'whiteboard'
   const [showAddSheet, setShowAddSheet] = useState(false)
   const [allSheets, setAllSheets]       = useState([])
   const [sheetSearch, setSheetSearch]   = useState('')
@@ -37,6 +39,8 @@ export default function LiveSessionView() {
           api.get(`/lesson-plans/${planId}`)
         ])
         setBoardUuid(sessionRes.data.boardUuid)
+        setSessionId(sessionRes.data.sessionId)
+        setActiveItemId(sessionRes.data.activeItemId)
         setPlanDetails(planRes.data)
       } catch (e) {
         setError(e.response?.data?.error || 'Failed to start live session')
@@ -46,6 +50,32 @@ export default function LiveSessionView() {
     }
     load()
   }, [planId])
+
+  // Poll for active item changes (teacher might change sheet from sidebar)
+  useEffect(() => {
+    if (!sessionId) return
+    let cancelled = false
+    async function poll() {
+      try {
+        const res = await api.get(`/sessions/${sessionId}/live-state`)
+        if (!cancelled) setActiveItemId(res.data.activeItemId)
+      } catch { /* ignore */ }
+    }
+    const interval = setInterval(poll, 3000)
+    return () => { cancelled = true; clearInterval(interval) }
+  }, [sessionId])
+
+  const isTeacher = user?.role !== 'student'
+  const activeItem = planDetails?.items?.find(i => i.id === activeItemId)
+  const activeSheet = activeItem?.sheet  // a sheet might be linked; custom items have no sheet
+
+  async function setActiveItem(itemId) {
+    setActiveItemId(itemId)
+    // Persist for student to follow
+    if (sessionId) {
+      try { await api.patch(`/sessions/${sessionId}/live-state`, { activeItemId: itemId }) } catch {}
+    }
+  }
 
   async function openAddSheet() {
     setShowAddSheet(true)
@@ -72,22 +102,6 @@ export default function LiveSessionView() {
       setSheetSearch('')
     } catch (e) {
       alert(e.response?.data?.error || 'Failed to add sheet')
-    }
-  }
-
-  async function openSheet(itemSheet) {
-    if (activeSheet?.id === itemSheet.id) {
-      setActiveSheet(null)
-      return
-    }
-    setSheetLoading(true)
-    try {
-      const res = await api.get(`/sheets/${itemSheet.id}`)
-      setActiveSheet(res.data)
-    } catch (e) {
-      console.error('Failed to load sheet', e)
-    } finally {
-      setSheetLoading(false)
     }
   }
 
@@ -118,22 +132,22 @@ export default function LiveSessionView() {
   }
 
   const items = planDetails?.items?.sort((a, b) => a.sequenceOrder - b.sequenceOrder) || []
-  const isTeacher = user?.role !== 'student'
 
   return (
     <>
       <Whiteboard
         boardUuid={boardUuid}
+        sessionId={sessionId}
         isTeacher={isTeacher}
         user={user}
         items={items}
         planDetails={planDetails}
         sidebarOpen={sidebarOpen}
         setSidebarOpen={setSidebarOpen}
-        activeSheet={activeSheet}
-        sheetLoading={sheetLoading}
-        onOpenSheet={openSheet}
-        onCloseSheet={() => setActiveSheet(null)}
+        mainView={mainView}
+        setMainView={setMainView}
+        activeItem={activeItem}
+        onSelectItem={setActiveItem}
         onEndSession={endSession}
         onAddSheet={isTeacher ? openAddSheet : null}
         onPreviewSheet={(id) => setPreviewSheetId(id)}
@@ -296,9 +310,12 @@ function SheetPanel({ sheet, onClose, sheetLoading }) {
   )
 }
 
-function Whiteboard({ boardUuid, isTeacher, user, items, planDetails, sidebarOpen, setSidebarOpen, activeSheet, sheetLoading, onOpenSheet, onCloseSheet, onEndSession, onAddSheet, onPreviewSheet }) {
-  // Memoize userInfo — a fresh object literal each render makes tldraw's
-  // sync hook re-apply user state every render, causing an infinite loop.
+function Whiteboard({
+  boardUuid, sessionId, isTeacher, user, items, planDetails,
+  sidebarOpen, setSidebarOpen, mainView, setMainView,
+  activeItem, onSelectItem, onEndSession, onAddSheet, onPreviewSheet,
+}) {
+  // Memoize userInfo — fresh object literal each render breaks useSyncDemo.
   const userInfo = useMemo(() => ({
     id: String(user?.id || 'anon'),
     name: user?.name || 'User',
@@ -310,14 +327,18 @@ function Whiteboard({ boardUuid, isTeacher, user, items, planDetails, sidebarOpe
     userInfo
   })
 
+  const activeItemSheet = activeItem?.sheet
+  const isCustomActive  = activeItem && !activeItem.sheet
+  const hasInteractive  = !!activeItemSheet
+
   return (
-    <div className="h-screen flex flex-col bg-gray-900">
+    <div className="h-screen flex flex-col bg-cream">
       {/* Top bar */}
-      <header className="bg-white border-b border-gray-200 px-4 py-2 flex items-center justify-between gap-3 flex-shrink-0">
+      <header className="bg-white border-b-2 border-redwood-100 px-4 py-2 flex items-center justify-between gap-3 flex-shrink-0">
         <div className="flex items-center gap-3 min-w-0">
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="p-1.5 rounded hover:bg-gray-100 text-gray-500"
+            className="p-1.5 rounded hover:bg-redwood-50 text-forest-700"
             title="Toggle sidebar"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -325,21 +346,37 @@ function Whiteboard({ boardUuid, isTeacher, user, items, planDetails, sidebarOpe
             </svg>
           </button>
           <div className="min-w-0">
-            <h1 className="font-semibold text-gray-900 text-sm truncate">{planDetails?.title}</h1>
-            <p className="text-xs text-gray-500 truncate">
+            <h1 className="font-serif font-bold text-gray-900 text-sm truncate">{planDetails?.title}</h1>
+            <p className="text-xs text-forest-700 truncate">
               {isTeacher
                 ? `Teaching ${planDetails?.student?.name}`
                 : `Learning with ${planDetails?.tutor?.name}`}
             </p>
           </div>
         </div>
+
+        {/* View toggle */}
+        <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1 hidden md:flex">
+          <button
+            onClick={() => setMainView('sheet')}
+            className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
+              mainView === 'sheet' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            📝 Sheet
+          </button>
+          <button
+            onClick={() => setMainView('whiteboard')}
+            className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
+              mainView === 'whiteboard' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            ✏️ Whiteboard
+          </button>
+        </div>
+
         <div className="flex items-center gap-2 flex-shrink-0">
-          {activeSheet && (
-            <span className="hidden md:inline-flex badge bg-brand-100 text-brand-700 truncate max-w-[200px]">
-              📄 {activeSheet.title}
-            </span>
-          )}
-          <span className={`badge ${isTeacher ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
+          <span className={`badge ${isTeacher ? 'bg-redwood-100 text-redwood-700' : 'bg-forest-100 text-forest-700'}`}>
             {isTeacher ? 'Teacher' : 'Student'}
           </span>
           <span className="hidden sm:inline-flex items-center gap-1.5 text-xs text-green-600 font-medium">
@@ -347,19 +384,19 @@ function Whiteboard({ boardUuid, isTeacher, user, items, planDetails, sidebarOpe
             Live
           </span>
           <button onClick={onEndSession} className="btn-danger text-xs py-1.5 px-3">
-            End Session
+            End
           </button>
         </div>
       </header>
 
-      {/* Main: sidebar + whiteboard + sheet panel */}
+      {/* Main: sidebar + content */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left sidebar */}
         {sidebarOpen && (
           <aside className="w-60 bg-white border-r border-gray-200 overflow-y-auto flex-shrink-0">
             <div className="p-3 border-b border-gray-100">
               <div className="flex items-center justify-between gap-2">
-                <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Lesson Sheets</h2>
+                <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Lesson Items</h2>
                 {onAddSheet && (
                   <button
                     onClick={onAddSheet}
@@ -370,64 +407,108 @@ function Whiteboard({ boardUuid, isTeacher, user, items, planDetails, sidebarOpe
                   </button>
                 )}
               </div>
-              <p className="text-xs text-gray-400 mt-0.5">Click to view alongside</p>
+              <p className="text-xs text-gray-400 mt-0.5">
+                {isTeacher ? 'Click to open for both' : 'Tutor will pick what to work on'}
+              </p>
             </div>
             <div className="p-2 space-y-1">
               {items.length === 0 && (
-                <p className="text-xs text-gray-400 text-center py-4">No sheets in this plan</p>
+                <p className="text-xs text-gray-400 text-center py-4">No items in this plan</p>
               )}
               {items.map((item, idx) => {
-                const isActive = activeSheet?.id === item.sheet?.id
+                const isActive = activeItem?.id === item.id
+                const isCustom = !item.sheet && item.customTitle
+                const title = isCustom ? item.customTitle : item.sheet?.title
                 return (
                   <button
                     key={item.id}
-                    onClick={() => onOpenSheet(item.sheet)}
+                    onClick={() => isTeacher && onSelectItem(item.id)}
+                    disabled={!isTeacher}
                     className={`w-full text-left px-3 py-2 rounded-md transition-colors ${
-                      isActive ? 'bg-brand-50 border border-brand-200' : 'hover:bg-gray-50 border border-transparent'
+                      isActive ? 'bg-redwood-50 border border-redwood-200'
+                      : isTeacher ? 'hover:bg-gray-50 border border-transparent'
+                      : 'border border-transparent cursor-default'
                     }`}
                   >
                     <div className="flex items-start gap-2">
                       <span className={`flex-shrink-0 w-5 h-5 rounded text-xs font-semibold flex items-center justify-center mt-0.5 ${
-                        isActive ? 'bg-brand-600 text-white' : 'bg-brand-100 text-brand-700'
+                        isActive ? 'bg-redwood-600 text-white'
+                        : isCustom ? 'bg-purple-100 text-purple-700'
+                        : 'bg-brand-100 text-brand-700'
                       }`}>
                         {idx + 1}
                       </span>
                       <div className="flex-1 min-w-0">
-                        <p className={`text-xs font-medium leading-snug truncate ${isActive ? 'text-brand-700' : 'text-gray-800'}`}>
-                          {item.sheet?.title}
+                        <p className={`text-xs font-medium leading-snug truncate ${isActive ? 'text-redwood-700' : 'text-gray-800'}`}>
+                          {title || 'Untitled'}
                         </p>
-                        <p className="text-[10px] text-gray-400 mt-0.5">{item.sheet?.subject}</p>
+                        <p className="text-[10px] text-gray-400 mt-0.5">
+                          {isCustom ? 'Custom' : item.sheet?.subject}
+                        </p>
                       </div>
                     </div>
                   </button>
                 )
               })}
             </div>
-
-            <div className="p-3 border-t border-gray-100 mt-2 text-xs text-gray-500 leading-relaxed">
-              <p className="mb-2"><strong className="text-gray-700">How it works</strong></p>
-              <ul className="space-y-1 list-disc pl-4">
-                <li>Click a sheet to open it in the right panel</li>
-                <li>Both of you draw on the canvas in real-time</li>
-                <li>Work through questions together</li>
-              </ul>
-            </div>
           </aside>
         )}
 
-        {/* Whiteboard canvas */}
-        <main className="flex-1 relative min-w-0">
-          <Tldraw store={store} autoFocus />
-        </main>
+        {/* Main content area */}
+        <main className="flex-1 relative min-w-0 overflow-hidden">
+          {/* Sheet view */}
+          {mainView === 'sheet' && (
+            <>
+              {hasInteractive ? (
+                <InteractiveSheet
+                  sessionId={sessionId}
+                  sheetId={activeItemSheet.id}
+                  isTeacher={isTeacher}
+                  onCloseSheet={isTeacher ? () => onSelectItem(null) : null}
+                />
+              ) : isCustomActive ? (
+                <div className="h-full flex items-center justify-center p-8">
+                  <div className="card text-center max-w-md">
+                    <p className="text-4xl mb-3">📋</p>
+                    <h3 className="font-serif font-bold text-gray-900 text-lg mb-1">
+                      {activeItem.customTitle}
+                    </h3>
+                    <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">
+                      {activeItem.customType === 'ixl_maths' ? 'IXL Maths'
+                        : activeItem.customType === 'ixl_english' ? 'IXL English'
+                        : activeItem.customType === 'paper' ? 'Paper activity'
+                        : 'Custom task'}
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      Work on this externally. {isTeacher && 'Use the whiteboard tab for scratch work, or mark as done from the student\'s profile.'}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="h-full flex items-center justify-center p-8 bg-gradient-to-br from-cream to-redwood-50">
+                  <div className="text-center max-w-md">
+                    <p className="text-5xl mb-3">📚</p>
+                    <h3 className="font-serif font-bold text-gray-900 text-xl mb-2">
+                      {isTeacher ? 'Pick an item from the sidebar' : 'Waiting for your tutor'}
+                    </h3>
+                    <p className="text-sm text-forest-700">
+                      {isTeacher
+                        ? 'Click any item on the left to start. The student will see the same sheet when you open it.'
+                        : 'Your tutor will open a sheet to work on shortly. Hang tight!'}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
 
-        {/* Sheet panel on the right */}
-        {(activeSheet || sheetLoading) && (
-          <SheetPanel
-            sheet={activeSheet}
-            onClose={onCloseSheet}
-            sheetLoading={sheetLoading}
-          />
-        )}
+          {/* Whiteboard view */}
+          {mainView === 'whiteboard' && (
+            <div className="h-full">
+              <Tldraw store={store} autoFocus />
+            </div>
+          )}
+        </main>
       </div>
     </div>
   )

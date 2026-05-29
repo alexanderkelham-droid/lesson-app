@@ -118,6 +118,11 @@ model LessonSession {
   attendedAt   DateTime? @map("attended_at")
   durationMins Int?      @map("duration_mins")
   notes        String?
+  // Live-room state (polled during in-session interactive sheet)
+  activeItemId Int?      @map("active_item_id")
+  liveAnswers  Json?     @map("live_answers")  // { [questionId]: stringAnswer }
+  liveMarks    Json?     @map("live_marks")    // { [questionId]: 'correct' | 'wrong' }
+  liveUpdatedAt DateTime? @map("live_updated_at")
   createdAt    DateTime  @default(now()) @map("created_at")
 
   lessonPlan LessonPlan @relation(fields: [lessonPlanId], references: [id], onDelete: Cascade)

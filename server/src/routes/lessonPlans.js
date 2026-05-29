@@ -360,7 +360,27 @@ router.get('/:id/live-session', auth, async (req, res, next) => {
       });
     }
 
-    res.json({ boardUuid });
+    // Find or create a session for today so we have a sync target for the
+    // interactive sheet. Teachers can create; students just look up.
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+    const todayEnd   = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+
+    let session = await prisma.lessonSession.findFirst({
+      where: { lessonPlanId: planId, scheduledAt: { gte: todayStart, lte: todayEnd } },
+      orderBy: { scheduledAt: 'asc' },
+      select: { id: true, activeItemId: true }
+    });
+
+    if (!session && (role === 'tutor' || role === 'manager')) {
+      // Auto-create a session for today so the teacher can immediately start
+      session = await prisma.lessonSession.create({
+        data: { lessonPlanId: planId, scheduledAt: new Date() },
+        select: { id: true, activeItemId: true }
+      });
+    }
+
+    res.json({ boardUuid, sessionId: session?.id || null, activeItemId: session?.activeItemId || null });
   } catch (err) { next(err); }
 });
 
