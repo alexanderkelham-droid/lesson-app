@@ -93,7 +93,9 @@ export default function LiveSessionView() {
     try {
       await api.post(`/lesson-plans/${planId}/items`, {
         sheetId: sheet.id,
-        status: 'available'
+        status: 'available',
+        // Auto-assign to current session so the sheet shows up in this lesson
+        sessionId: sessionId || undefined
       })
       // Refresh plan details to show new item in sidebar
       const planRes = await api.get(`/lesson-plans/${planId}`)
@@ -131,7 +133,13 @@ export default function LiveSessionView() {
     )
   }
 
-  const items = planDetails?.items?.sort((a, b) => a.sequenceOrder - b.sequenceOrder) || []
+  // Filter to items belonging to THIS session. Items with no sessionId
+  // (unscheduled pool) are also shown so the tutor can pull from the backlog
+  // mid-lesson — items from other sessions are hidden to reduce clutter.
+  const allItems = planDetails?.items?.sort((a, b) => a.sequenceOrder - b.sequenceOrder) || []
+  const items = sessionId
+    ? allItems.filter(i => !i.sessionId || i.sessionId === sessionId)
+    : allItems
 
   return (
     <>

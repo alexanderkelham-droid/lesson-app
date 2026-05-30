@@ -54,6 +54,122 @@ function getNextDate(dbDay) {
   return d.toISOString().split('T')[0]
 }
 
+function SessionsSchedule({ sessions, planItems, newSessionDate, setNewSessionDate, onCreate, onDelete, onCarryOver, saving }) {
+  const sorted = sessions.slice().sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt))
+
+  function countItemsForSession(sessionId) {
+    return planItems.filter(i => i.sessionId === sessionId).length
+  }
+  function countIncompleteForSession(sessionId) {
+    return planItems.filter(i => i.sessionId === sessionId && i.status !== 'completed').length
+  }
+
+  const unscheduledCount = planItems.filter(i => !i.sessionId).length
+
+  return (
+    <div className="card">
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <h2 className="font-semibold text-gray-900">Schedule ({sorted.length} session{sorted.length === 1 ? '' : 's'})</h2>
+        <p className="text-xs text-gray-400">Plan items into specific sessions</p>
+      </div>
+
+      {/* New session form */}
+      <div className="flex flex-wrap items-end gap-2 mb-4 bg-gray-50 border border-gray-200 rounded-lg p-3">
+        <div className="flex-1 min-w-[140px]">
+          <label className="text-xs font-medium text-gray-600">Schedule a new session</label>
+          <input
+            type="date"
+            value={newSessionDate}
+            onChange={e => setNewSessionDate(e.target.value)}
+            min={new Date().toISOString().split('T')[0]}
+            className="input text-sm mt-0.5"
+          />
+        </div>
+        <button
+          onClick={onCreate}
+          disabled={!newSessionDate || saving}
+          className="btn-primary text-sm py-2 disabled:opacity-50"
+        >
+          {saving ? 'Adding...' : '+ Add session'}
+        </button>
+      </div>
+
+      {/* Sessions list */}
+      {sorted.length === 0 ? (
+        <p className="text-xs text-gray-400 italic">No sessions scheduled yet. Add one above.</p>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {sorted.map(s => {
+            const total = countItemsForSession(s.id)
+            const incomplete = countIncompleteForSession(s.id)
+            const past = new Date(s.scheduledAt) < new Date()
+            const attended = !!s.attendedAt
+            const date = new Date(s.scheduledAt)
+            return (
+              <div
+                key={s.id}
+                className={`border rounded-lg p-3 ${
+                  attended ? 'bg-green-50 border-green-200'
+                  : past ? 'bg-amber-50 border-amber-200'
+                  : 'bg-white border-gray-200'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">
+                      {date.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' })}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                      {attended && <span className="ml-2 text-green-600 font-semibold">· Attended</span>}
+                      {!attended && past && <span className="ml-2 text-amber-700 font-semibold">· Past</span>}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => onDelete(s.id)}
+                    className="text-gray-400 hover:text-red-500 text-sm"
+                    title="Delete session"
+                  >
+                    ×
+                  </button>
+                </div>
+                <div className="mt-2 text-xs text-gray-600">
+                  {total === 0 ? (
+                    <span className="italic text-gray-400">No items assigned</span>
+                  ) : (
+                    <>
+                      <span className="font-medium">{total - incomplete}/{total}</span> done
+                      {incomplete > 0 && (
+                        <span className="text-amber-600 ml-2">{incomplete} incomplete</span>
+                      )}
+                    </>
+                  )}
+                </div>
+                {past && incomplete > 0 && (
+                  <button
+                    onClick={() => onCarryOver(s.id)}
+                    className="mt-2 w-full text-xs bg-amber-100 hover:bg-amber-200 text-amber-800 font-medium py-1 rounded transition-colors"
+                  >
+                    ↻ Carry {incomplete} item{incomplete === 1 ? '' : 's'} to next session
+                  </button>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Unscheduled badge */}
+      {unscheduledCount > 0 && (
+        <p className="text-xs text-gray-500 mt-3">
+          <span className="inline-block w-2 h-2 bg-gray-400 rounded-full mr-1.5"></span>
+          {unscheduledCount} item{unscheduledCount === 1 ? '' : 's'} not yet assigned to a session
+        </p>
+      )}
+    </div>
+  )
+}
+
 function CustomItemModal({ open, onClose, onAdd }) {
   const [customType, setCustomType] = useState('ixl_maths')
   const [customTitle, setCustomTitle] = useState('')
@@ -117,7 +233,7 @@ function CustomItemModal({ open, onClose, onAdd }) {
   )
 }
 
-function SortablePlanItem({ item, onRemove, onUpdate, onPreview }) {
+function SortablePlanItem({ item, sessions = [], onRemove, onUpdate, onPreview }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id })
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }
   const [showDetails, setShowDetails] = useState(!!item.scheduledDate || !!item.tutorNotes)
@@ -157,10 +273,17 @@ function SortablePlanItem({ item, onRemove, onUpdate, onPreview }) {
             {item.status === 'completed' && (
               <span className="text-xs text-green-600 font-semibold">✓ Completed</span>
             )}
-            {item.scheduledDate && (
-              <span className="text-xs text-brand-600">
-                📅 {new Date(item.scheduledDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
-              </span>
+            {item.sessionId && (() => {
+              const s = sessions.find(x => x.id === item.sessionId)
+              if (!s) return null
+              return (
+                <span className="text-xs text-brand-700 bg-brand-50 px-1.5 py-0.5 rounded">
+                  📅 {new Date(s.scheduledAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                </span>
+              )
+            })()}
+            {!item.sessionId && (
+              <span className="text-xs text-gray-400 italic">Unscheduled</span>
             )}
             {item.tutorNotes && (
               <span className="text-xs text-gray-600 italic" title={item.tutorNotes}>
@@ -203,16 +326,26 @@ function SortablePlanItem({ item, onRemove, onUpdate, onPreview }) {
 
       {showDetails && (
         <div className="border-t border-gray-100 px-3 py-3 bg-gray-50 space-y-2">
+          <div>
+            <label className="text-xs font-medium text-gray-600">Assign to session</label>
+            <select
+              value={item.sessionId || ''}
+              onChange={e => onUpdate(item.id, { sessionId: e.target.value ? parseInt(e.target.value) : null })}
+              className="input text-xs py-1.5 mt-0.5"
+            >
+              <option value="">Unscheduled (no session yet)</option>
+              {sessions
+                .slice()
+                .sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt))
+                .map(s => {
+                  const d = new Date(s.scheduledAt)
+                  const label = d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
+                  const status = s.attendedAt ? ' (attended)' : (new Date(s.scheduledAt) < new Date() ? ' (past)' : '')
+                  return <option key={s.id} value={s.id}>{label}{status}</option>
+                })}
+            </select>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <div>
-              <label className="text-xs font-medium text-gray-600">Scheduled date</label>
-              <input
-                type="date"
-                value={item.scheduledDate ? item.scheduledDate.split('T')[0] : ''}
-                onChange={e => onUpdate(item.id, { scheduledDate: e.target.value || null })}
-                className="input text-xs py-1.5 mt-0.5"
-              />
-            </div>
             <div>
               <label className="text-xs font-medium text-gray-600">Due date</label>
               <input
@@ -447,6 +580,11 @@ export default function LessonPlanBuilder() {
   const [previousPlans, setPreviousPlans] = useState([])
   const [previousExpanded, setPreviousExpanded] = useState(true)
 
+  // Sessions belonging to this plan
+  const [sessions, setSessions] = useState([])
+  const [newSessionDate, setNewSessionDate] = useState('')
+  const [savingSession, setSavingSession] = useState(false)
+
   // Plan items
   const [planItems, setPlanItems] = useState([])
 
@@ -512,6 +650,71 @@ export default function LessonPlanBuilder() {
       .catch(() => setPreviousPlans([]))
   }, [studentId, planId])
 
+  async function reloadSessions() {
+    if (!planId) return
+    try {
+      const res = await api.get(`/lesson-plans/${planId}`)
+      setSessions(res.data.sessions || [])
+      // Also refresh items so sessionIds are up to date after a server-side change
+      setPlanItems(prev => {
+        const fresh = res.data.items.sort((a, b) => a.sequenceOrder - b.sequenceOrder)
+        return fresh.map(i => ({
+          id: i.id,
+          sheetId: i.sheetId,
+          sheet: i.sheet,
+          customTitle: i.customTitle,
+          customType: i.customType,
+          scheduledDate: i.scheduledDate,
+          dueDate: i.dueDate,
+          tutorNotes: i.tutorNotes || '',
+          sessionId: i.sessionId || null,
+          status: i.status
+        }))
+      })
+    } catch (e) { /* ignore */ }
+  }
+
+  async function createSession() {
+    if (!planId) {
+      alert('Save the plan first, then add sessions.')
+      return
+    }
+    if (!newSessionDate) return
+    setSavingSession(true)
+    try {
+      // Default time: take the lesson day's typical hour or just 15:00
+      const dt = new Date(newSessionDate + 'T15:00:00')
+      await api.post('/sessions', { lessonPlanId: parseInt(planId), scheduledAt: dt.toISOString() })
+      setNewSessionDate('')
+      await reloadSessions()
+    } catch (e) {
+      alert(e.response?.data?.error || 'Failed to create session')
+    } finally {
+      setSavingSession(false)
+    }
+  }
+
+  async function deleteSession(sessionIdToDelete) {
+    if (!confirm('Delete this session? Items assigned to it will move back to unscheduled.')) return
+    try {
+      await api.delete(`/sessions/${sessionIdToDelete}`)
+      await reloadSessions()
+    } catch (e) {
+      alert(e.response?.data?.error || 'Failed to delete')
+    }
+  }
+
+  async function triggerCarryover(sessionIdToCarry) {
+    if (!confirm('Move all incomplete items from this session to the next future session?')) return
+    try {
+      const res = await api.post(`/sessions/${sessionIdToCarry}/carryover`)
+      await reloadSessions()
+      alert(`${res.data.carriedOver} item${res.data.carriedOver === 1 ? '' : 's'} carried over.`)
+    } catch (e) {
+      alert(e.response?.data?.error || 'Carryover failed')
+    }
+  }
+
   function copyItemFromPrevious(prevItem) {
     // Skip if already in plan
     if (prevItem.sheetId && planItems.some(i => i.sheetId === prevItem.sheetId)) return
@@ -556,9 +759,11 @@ export default function LessonPlanBuilder() {
             scheduledDate: i.scheduledDate,
             dueDate: i.dueDate,
             tutorNotes: i.tutorNotes || '',
+            sessionId: i.sessionId || null,
             status: i.status
           })))
           setStudentNotes(plan.studentNotes || '')
+          setSessions(plan.sessions || [])
         }
       } catch (e) {
         setError('Failed to load data')
@@ -727,7 +932,9 @@ export default function LessonPlanBuilder() {
           scheduledDate: item.scheduledDate || undefined,
           dueDate: item.dueDate || undefined,
           tutorNotes: item.tutorNotes || undefined,
-          status: 'available'
+          sessionId: item.sessionId || undefined,
+          // Preserve completed status so reordering doesn't reset progress
+          status: item.status === 'completed' ? 'completed' : 'available'
         })
       }
 
@@ -957,6 +1164,20 @@ export default function LessonPlanBuilder() {
               </div>
             )}
 
+            {/* Sessions schedule */}
+            {!isNew && (
+              <SessionsSchedule
+                sessions={sessions}
+                planItems={planItems}
+                newSessionDate={newSessionDate}
+                setNewSessionDate={setNewSessionDate}
+                onCreate={createSession}
+                onDelete={deleteSession}
+                onCarryOver={triggerCarryover}
+                saving={savingSession}
+              />
+            )}
+
             <div className="card">
               <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
                 <h2 className="font-semibold text-gray-900">Plan Items ({planItems.length})</h2>
@@ -984,6 +1205,7 @@ export default function LessonPlanBuilder() {
                         <SortablePlanItem
                           key={item.id}
                           item={item}
+                          sessions={sessions}
                           onRemove={requestRemoveItem}
                           onUpdate={updateItem}
                           onPreview={setPreviewSheetId}

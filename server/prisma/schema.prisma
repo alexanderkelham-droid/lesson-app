@@ -125,7 +125,8 @@ model LessonSession {
   liveUpdatedAt DateTime? @map("live_updated_at")
   createdAt    DateTime  @default(now()) @map("created_at")
 
-  lessonPlan LessonPlan @relation(fields: [lessonPlanId], references: [id], onDelete: Cascade)
+  lessonPlan LessonPlan       @relation(fields: [lessonPlanId], references: [id], onDelete: Cascade)
+  items      LessonPlanItem[]
 
   @@index([scheduledAt])
   @@map("lesson_sessions")
@@ -144,10 +145,15 @@ model LessonPlanItem {
   // For non-sheet items (IXL, paper activity, custom task): title + type
   customTitle   String?              @map("custom_title")
   customType    String?              @map("custom_type") // e.g. "ixl_maths", "ixl_english", "paper", "other"
+  // Which session this item belongs to. Null = unscheduled (in plan but not yet
+  // assigned to a session). Auto-carryover updates this field when a session
+  // is marked attended with incomplete items.
+  sessionId     Int?                 @map("session_id")
   createdAt     DateTime             @default(now()) @map("created_at")
 
   lessonPlan       LessonPlan        @relation(fields: [lessonPlanId], references: [id], onDelete: Cascade)
   sheet            Sheet?            @relation(fields: [sheetId], references: [id])
+  session          LessonSession?    @relation(fields: [sessionId], references: [id], onDelete: SetNull)
   studentResponses StudentResponse[]
 
   @@map("lesson_plan_items")

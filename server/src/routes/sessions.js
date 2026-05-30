@@ -53,6 +53,13 @@ router.get('/', auth, async (req, res, next) => {
             student: { select: { id: true, name: true, email: true, subjectFocus: true } },
             tutor:   { select: { id: true, name: true } }
           }
+        },
+        items: {
+          orderBy: { sequenceOrder: 'asc' },
+          include: {
+            sheet: { select: { id: true, title: true, subject: true, topic: true } },
+            studentResponses: { orderBy: { createdAt: 'desc' }, take: 1, select: { id: true, score: true, completedAt: true } }
+          }
         }
       },
       orderBy: { scheduledAt: 'asc' }
@@ -101,10 +108,13 @@ router.post('/', requireRole('manager', 'tutor'), async (req, res, next) => {
 });
 
 // PUT /api/sessions/:id - update / reschedule / mark attended
+// When markAttended flips to true, any incomplete items belonging to this
+// session auto-carry over to the next future session of the same plan (or
+// to the unscheduled pool if there's none).
 router.put('/:id', requireRole('manager', 'tutor'), async (req, res, next) => {
   try {
     const sessionId = parseInt(req.params.id);
-    await loadSessionGuard(req, sessionId);
+    const existing = await loadSessionGuard(req, sessionId);
 
     const { scheduledAt, attendedAt, durationMins, notes, markAttended } = req.body;
 
@@ -114,6 +124,8 @@ router.put('/:id', requireRole('manager', 'tutor'), async (req, res, next) => {
     if (markAttended === true && !attendedAt) data.attendedAt = new Date();
     if (durationMins !== undefined) data.durationMins = durationMins ? parseInt(durationMins) : null;
     if (notes !== undefined) data.notes = notes;
+
+    const willBecomeAttended = !existing.attendedAt && (data.attendedAt || markAttended === true);
 
     const session = await prisma.lessonSession.update({
       where: { id: sessionId },
@@ -127,7 +139,57 @@ router.put('/:id', requireRole('manager', 'tutor'), async (req, res, next) => {
         }
       }
     });
-    res.json(session);
+
+    let carriedOver = 0;
+    if (willBecomeAttended) {
+      carriedOver = await carryOverIncompleteItems(sessionId, session.lessonPlanId);
+    }
+
+    res.json({ ...session, _carriedOver: carriedOver });
+  } catch (err) { next(err); }
+});
+
+// Internal helper: move incomplete items from `fromSessionId` to the next
+// future session of the same plan. If there's no future session, items go
+// back to the unscheduled pool (sessionId = null).
+async function carryOverIncompleteItems(fromSessionId, lessonPlanId) {
+  const incompleteItems = await prisma.lessonPlanItem.findMany({
+    where: {
+      sessionId: fromSessionId,
+      status: { not: 'completed' }
+    },
+    select: { id: true }
+  });
+  if (incompleteItems.length === 0) return 0;
+
+  // Find next future session for this plan
+  const nextSession = await prisma.lessonSession.findFirst({
+    where: {
+      lessonPlanId,
+      id: { not: fromSessionId },
+      attendedAt: null,
+      scheduledAt: { gte: new Date() }
+    },
+    orderBy: { scheduledAt: 'asc' },
+    select: { id: true }
+  });
+
+  const targetSessionId = nextSession?.id || null;
+  const ids = incompleteItems.map(i => i.id);
+  await prisma.lessonPlanItem.updateMany({
+    where: { id: { in: ids } },
+    data: { sessionId: targetSessionId }
+  });
+  return incompleteItems.length;
+}
+
+// POST /api/sessions/:id/carryover - manually trigger carryover
+router.post('/:id/carryover', requireRole('manager', 'tutor'), async (req, res, next) => {
+  try {
+    const sessionId = parseInt(req.params.id);
+    const session = await loadSessionGuard(req, sessionId);
+    const carriedOver = await carryOverIncompleteItems(sessionId, session.lessonPlanId);
+    res.json({ success: true, carriedOver });
   } catch (err) { next(err); }
 });
 

@@ -74,11 +74,16 @@ router.get('/:id', auth, async (req, res, next) => {
           orderBy: { sequenceOrder: 'asc' },
           include: {
             sheet: true,
+            session: { select: { id: true, scheduledAt: true, attendedAt: true } },
             studentResponses: {
               orderBy: { createdAt: 'desc' }, take: 1,
               select: { id: true, score: true, completedAt: true, timeSpentSeconds: true }
             }
           }
+        },
+        sessions: {
+          orderBy: { scheduledAt: 'asc' },
+          select: { id: true, scheduledAt: true, attendedAt: true, durationMins: true, notes: true }
         }
       }
     });
@@ -154,7 +159,7 @@ router.post('/:id/items', requireRole('manager', 'tutor'), async (req, res, next
   try {
     const planId = parseInt(req.params.id);
     await assertCanMutatePlan(req, planId);
-    const { sheetId, customTitle, customType, scheduledDate, dueDate, status, tutorNotes } = req.body;
+    const { sheetId, customTitle, customType, scheduledDate, dueDate, status, tutorNotes, sessionId } = req.body;
     if (!sheetId && !customTitle) {
       return res.status(400).json({ error: 'Either sheetId or customTitle is required' });
     }
@@ -175,7 +180,8 @@ router.post('/:id/items', requireRole('manager', 'tutor'), async (req, res, next
         scheduledDate: scheduledDate ? new Date(scheduledDate) : null,
         dueDate: dueDate ? new Date(dueDate) : null,
         status: status || 'available',
-        tutorNotes: tutorNotes || null
+        tutorNotes: tutorNotes || null,
+        sessionId: sessionId ? parseInt(sessionId) : null
       },
       include: { sheet: true }
     });
@@ -187,7 +193,7 @@ router.post('/:id/items', requireRole('manager', 'tutor'), async (req, res, next
 router.put('/:id/items/:itemId', requireRole('manager', 'tutor'), async (req, res, next) => {
   try {
     await assertCanMutatePlan(req, parseInt(req.params.id));
-    const { scheduledDate, dueDate, status, sequenceOrder, tutorNotes } = req.body;
+    const { scheduledDate, dueDate, status, sequenceOrder, tutorNotes, sessionId } = req.body;
     const item = await prisma.lessonPlanItem.update({
       where: { id: parseInt(req.params.itemId) },
       data: {
@@ -195,7 +201,9 @@ router.put('/:id/items/:itemId', requireRole('manager', 'tutor'), async (req, re
         ...(dueDate !== undefined && { dueDate: dueDate ? new Date(dueDate) : null }),
         ...(status && { status }),
         ...(sequenceOrder !== undefined && { sequenceOrder: parseInt(sequenceOrder) }),
-        ...(tutorNotes !== undefined && { tutorNotes })
+        ...(tutorNotes !== undefined && { tutorNotes }),
+        // sessionId === null means "move to unscheduled pool"
+        ...(sessionId !== undefined && { sessionId: sessionId === null ? null : parseInt(sessionId) })
       },
       include: { sheet: true }
     });
