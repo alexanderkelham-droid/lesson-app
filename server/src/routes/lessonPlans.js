@@ -192,10 +192,26 @@ router.post('/:id/items', requireRole('manager', 'tutor'), async (req, res, next
 // PUT /api/lesson-plans/:id/items/:itemId
 router.put('/:id/items/:itemId', requireRole('manager', 'tutor'), async (req, res, next) => {
   try {
-    await assertCanMutatePlan(req, parseInt(req.params.id));
+    const planId = parseInt(req.params.id);
+    const itemId = parseInt(req.params.itemId);
+    if (isNaN(planId) || isNaN(itemId)) {
+      return res.status(400).json({ error: 'Invalid plan or item id' });
+    }
+    await assertCanMutatePlan(req, planId);
+
+    // Verify item belongs to this plan (clearer 404 than Prisma's P2025 / 500)
+    const existing = await prisma.lessonPlanItem.findUnique({
+      where: { id: itemId },
+      select: { id: true, lessonPlanId: true }
+    });
+    if (!existing) return res.status(404).json({ error: 'Item not found' });
+    if (existing.lessonPlanId !== planId) {
+      return res.status(400).json({ error: 'Item does not belong to this plan' });
+    }
+
     const { scheduledDate, dueDate, status, sequenceOrder, tutorNotes, sessionId } = req.body;
     const item = await prisma.lessonPlanItem.update({
-      where: { id: parseInt(req.params.itemId) },
+      where: { id: itemId },
       data: {
         ...(scheduledDate !== undefined && { scheduledDate: scheduledDate ? new Date(scheduledDate) : null }),
         ...(dueDate !== undefined && { dueDate: dueDate ? new Date(dueDate) : null }),
@@ -208,7 +224,13 @@ router.put('/:id/items/:itemId', requireRole('manager', 'tutor'), async (req, re
       include: { sheet: true }
     });
     res.json(item);
-  } catch (err) { next(err); }
+  } catch (err) {
+    // Prisma "record not found" — surface as 404 not 500
+    if (err.code === 'P2025') return res.status(404).json({ error: 'Item not found' });
+    // Foreign-key violation (e.g. invalid sessionId)
+    if (err.code === 'P2003') return res.status(400).json({ error: 'Invalid sessionId — session does not exist' });
+    next(err);
+  }
 });
 
 // DELETE /api/lesson-plans/:id/items/:itemId

@@ -15,6 +15,7 @@
     "@fullcalendar/daygrid": "^6.1.20",
     "@fullcalendar/interaction": "^6.1.20",
     "@fullcalendar/react": "^6.1.20",
+    "@fullcalendar/timegrid": "^6.1.20",
     "@tldraw/sync": "^5.0.0",
     "axios": "^1.6.8",
     "react": "^18.2.0",
