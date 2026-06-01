@@ -4,6 +4,8 @@ import { useAuth } from '../../context/AuthContext'
 import Navbar from '../shared/Navbar'
 import LoadingSpinner from '../shared/LoadingSpinner'
 import TodayView from '../shared/TodayView'
+import Tour from '../shared/Tour'
+import { tutorTour } from '../shared/tourSteps'
 import api from '../../lib/api'
 
 function ProgressBar({ value }) {
@@ -26,6 +28,7 @@ export default function TutorDashboard() {
   const [loadError, setLoadError] = useState('')
   const [tab, setTab]           = useState('today') // 'today' | 'students'
   const [search, setSearch]     = useState('')
+  const [tourForce, setTourForce] = useState(false)
 
   function load() {
     setLoading(true)
@@ -60,14 +63,14 @@ export default function TutorDashboard() {
 
   return (
     <>
-      <Navbar title="Tutor" />
+      <Navbar title="Tutor" onShowTour={() => setTourForce(true)} />
       <main className="max-w-4xl mx-auto px-4 py-6">
         <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Welcome back, {user.name}</h1>
             <p className="text-gray-500 text-sm mt-0.5">{students.length} students assigned</p>
           </div>
-          <Link to="/tutor/lesson-plans/new" className="btn-primary text-sm">
+          <Link data-tour="new-plan" to="/tutor/lesson-plans/new" className="btn-primary text-sm">
             + New Lesson Plan
           </Link>
         </div>
@@ -97,6 +100,7 @@ export default function TutorDashboard() {
           ].map(t => (
             <button
               key={t.key}
+              data-tour={`tab-${t.key}`}
               onClick={() => setTab(t.key)}
               className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${tab === t.key ? 'bg-white shadow-sm text-gray-900' : 'text-gray-600 hover:text-gray-900'}`}
             >
@@ -171,6 +175,14 @@ export default function TutorDashboard() {
           </>
         )}
       </main>
+
+      <Tour
+        id="tutor-intro"
+        autoStart
+        forceOpen={tourForce}
+        onClose={() => setTourForce(false)}
+        steps={tutorTour}
+      />
     </>
   )
 }

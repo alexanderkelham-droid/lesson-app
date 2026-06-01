@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import Navbar from '../shared/Navbar'
 import LoadingSpinner from '../shared/LoadingSpinner'
+import Tour from '../shared/Tour'
+import { studentTour } from '../shared/tourSteps'
 import api from '../../lib/api'
 
 export default function StudentDashboard() {
@@ -11,6 +13,7 @@ export default function StudentDashboard() {
   const [plan, setPlan]     = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError]   = useState('')
+  const [tourForce, setTourForce] = useState(false)
 
   useEffect(() => {
     api.get('/lesson-plans')
@@ -32,7 +35,7 @@ export default function StudentDashboard() {
 
   return (
     <>
-      <Navbar title="My Learning" />
+      <Navbar title="My Learning" onShowTour={() => setTourForce(true)} />
       <main className="max-w-2xl mx-auto px-4 py-6">
         {/* Welcome banner */}
         <div className="card mb-6 bg-gradient-to-r from-brand-600 to-indigo-500 text-white border-0">
@@ -61,6 +64,7 @@ export default function StudentDashboard() {
 
             {/* Live session button */}
             <button
+              data-tour="live-button"
               onClick={() => navigate(`/student/lesson-plans/${plan.id}/live`)}
               className="w-full mb-4 bg-gradient-to-r from-purple-600 to-pink-500 text-white rounded-xl py-3 px-4 font-semibold shadow-sm hover:shadow-md transition-all flex items-center justify-center gap-2"
             >
@@ -69,7 +73,7 @@ export default function StudentDashboard() {
             </button>
 
             {/* Progress bar */}
-            <div className="card mb-6">
+            <div data-tour="progress-bar" className="card mb-6">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-medium text-gray-700">Overall Progress</span>
                 <span className="text-sm font-bold text-brand-600">{progress}%</span>
@@ -84,7 +88,7 @@ export default function StudentDashboard() {
             </div>
 
             {/* Timeline */}
-            <div className="space-y-3">
+            <div data-tour="lesson-items" className="space-y-3">
               <h3 className="text-base font-semibold text-gray-900">Your Lesson Plan</h3>
               {items.map((item, idx) => {
                 const resp  = item.studentResponses?.[0]
@@ -168,6 +172,14 @@ export default function StudentDashboard() {
           </div>
         )}
       </main>
+
+      <Tour
+        id="student-intro"
+        autoStart
+        forceOpen={tourForce}
+        onClose={() => setTourForce(false)}
+        steps={studentTour}
+      />
     </>
   )
 }

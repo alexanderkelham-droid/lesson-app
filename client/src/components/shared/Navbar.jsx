@@ -9,7 +9,7 @@ const roleBadge = {
 }
 const homeRoute = { student: '/student', tutor: '/tutor', manager: '/manager' }
 
-export default function Navbar({ title }) {
+export default function Navbar({ title, onShowTour }) {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
 
@@ -36,7 +36,7 @@ export default function Navbar({ title }) {
           )}
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           {user && (
             <>
               <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold capitalize hidden sm:inline-flex ${roleBadge[user.role]}`}>
@@ -44,6 +44,16 @@ export default function Navbar({ title }) {
               </span>
               <span className="text-sm text-forest-800 font-medium hidden md:block">{user.name}</span>
             </>
+          )}
+          {onShowTour && (
+            <button
+              onClick={onShowTour}
+              className="w-8 h-8 flex items-center justify-center text-forest-700 hover:text-redwood-600 hover:bg-redwood-50 rounded-full font-semibold transition-colors"
+              title="Show tour"
+              aria-label="Show tour"
+            >
+              ?
+            </button>
           )}
           <button
             onClick={handleLogout}

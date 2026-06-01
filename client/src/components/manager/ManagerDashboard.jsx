@@ -6,6 +6,8 @@ import AddUserModal from './AddUserModal'
 import CalendarView from './CalendarView'
 import TodayView from '../shared/TodayView'
 import ConfirmModal from '../shared/ConfirmModal'
+import Tour from '../shared/Tour'
+import { managerTour } from '../shared/tourSteps'
 import api from '../../lib/api'
 
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -34,6 +36,7 @@ export default function ManagerDashboard() {
   const [tutors, setTutors] = useState([])
   const [confirmDeleteTutor, setConfirmDeleteTutor] = useState(null)
   const [tutorActionError, setTutorActionError] = useState('')
+  const [tourForce, setTourForce] = useState(false)
   // legacy state kept to avoid breaking references; new flow uses showAddUser
   const showAddStudent = showAddUser === 'student'
   const setShowAddStudent = (open) => setShowAddUser(open ? 'student' : null)
@@ -92,7 +95,7 @@ export default function ManagerDashboard() {
 
   return (
     <>
-      <Navbar title="Manager" />
+      <Navbar title="Manager" onShowTour={() => setTourForce(true)} />
       <main className="max-w-6xl mx-auto px-4 py-6">
         {/* Header row */}
         <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
@@ -101,13 +104,13 @@ export default function ManagerDashboard() {
             <p className="text-gray-500 text-sm mt-0.5">{students.length} students total</p>
           </div>
           <div className="flex gap-2 flex-wrap">
-            <button onClick={() => setShowAddUser('tutor')} className="btn-secondary text-sm">
+            <button data-tour="add-tutor" onClick={() => setShowAddUser('tutor')} className="btn-secondary text-sm">
               + Add Tutor
             </button>
-            <button onClick={() => setShowAddUser('student')} className="btn-secondary text-sm">
+            <button data-tour="add-student" onClick={() => setShowAddUser('student')} className="btn-secondary text-sm">
               + Add Student
             </button>
-            <Link to="/manager/lesson-plans/new" className="btn-primary text-sm">
+            <Link data-tour="new-plan" to="/manager/lesson-plans/new" className="btn-primary text-sm">
               + New Lesson Plan
             </Link>
           </div>
@@ -146,6 +149,7 @@ export default function ManagerDashboard() {
           ].map(t => (
             <button
               key={t.key}
+              data-tour={`tab-${t.key}`}
               onClick={() => setTab(t.key)}
               className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${tab === t.key ? 'bg-white shadow-sm text-gray-900' : 'text-gray-600 hover:text-gray-900'}`}
             >
@@ -367,6 +371,14 @@ export default function ManagerDashboard() {
         destructive
         onConfirm={handleDeleteTutor}
         onClose={() => { setConfirmDeleteTutor(null); setTutorActionError('') }}
+      />
+
+      <Tour
+        id="manager-intro"
+        autoStart
+        forceOpen={tourForce}
+        onClose={() => setTourForce(false)}
+        steps={managerTour}
       />
     </>
   )
