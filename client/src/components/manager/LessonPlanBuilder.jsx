@@ -899,6 +899,7 @@ export default function LessonPlanBuilder() {
     setError('')
     try {
       let plan
+      let existingItems = []
       if (isNew) {
         const res = await api.post('/lesson-plans', {
           title, studentId, tutorId, status,
@@ -916,15 +917,54 @@ export default function LessonPlanBuilder() {
         })
         plan = res.data
         const existingRes = await api.get(`/lesson-plans/${planId}`)
-        for (const item of existingRes.data.items) {
-          await api.delete(`/lesson-plans/${planId}/items/${item.id}`)
-        }
+        existingItems = existingRes.data.items || []
       }
 
       const pid = plan.id || parseInt(planId)
 
+      // Diff existing vs current planItems by ID.
+      // - Items with a numeric ID that still exist locally → PUT to update
+      // - Items with a temp string ID → POST to create
+      // - Items in DB but not in local state → DELETE (skip silently if FK fails — they have student responses we don't want to nuke)
+      const localById = new Map()
+      const tempItems = []
+      for (const it of planItems) {
+        if (typeof it.id === 'number') localById.set(it.id, it)
+        else tempItems.push(it)
+      }
+
+      // 1. Delete items no longer in local state (best-effort)
+      const removedIds = existingItems
+        .filter(e => !localById.has(e.id))
+        .map(e => e.id)
+      const skippedDeletes = []
+      for (const id of removedIds) {
+        try {
+          await api.delete(`/lesson-plans/${pid}/items/${id}`)
+        } catch (delErr) {
+          // Likely FK violation because the item has student responses — keep it
+          skippedDeletes.push(id)
+        }
+      }
+
+      // 2. Update existing items (in their current order)
       for (let i = 0; i < planItems.length; i++) {
         const item = planItems[i]
+        if (typeof item.id !== 'number') continue
+        await api.put(`/lesson-plans/${pid}/items/${item.id}`, {
+          scheduledDate: item.scheduledDate || null,
+          dueDate: item.dueDate || null,
+          tutorNotes: item.tutorNotes ?? null,
+          sessionId: item.sessionId ?? null,
+          sequenceOrder: i + 1,
+          status: item.status === 'completed' ? 'completed' : 'available'
+        })
+      }
+
+      // 3. Create new items (those with temp IDs)
+      for (let i = 0; i < planItems.length; i++) {
+        const item = planItems[i]
+        if (typeof item.id === 'number') continue
         await api.post(`/lesson-plans/${pid}/items`, {
           sheetId: item.sheetId || undefined,
           customTitle: item.customTitle || undefined,
@@ -933,9 +973,12 @@ export default function LessonPlanBuilder() {
           dueDate: item.dueDate || undefined,
           tutorNotes: item.tutorNotes || undefined,
           sessionId: item.sessionId || undefined,
-          // Preserve completed status so reordering doesn't reset progress
-          status: item.status === 'completed' ? 'completed' : 'available'
+          status: 'available'
         })
+      }
+
+      if (skippedDeletes.length > 0) {
+        setSuccess(`Saved — ${skippedDeletes.length} item${skippedDeletes.length === 1 ? '' : 's'} kept because the student has already completed them.`)
       }
 
       setSuccess('Lesson plan saved!')
