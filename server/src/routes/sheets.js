@@ -63,7 +63,7 @@ Return ONLY the improved JSON.`;
 
     const client = new Anthropic();
     const response = await client.messages.create({
-      model: 'claude-opus-4-8',
+      model: 'claude-sonnet-4-6',
       max_tokens: 8000,
       system: AI_IMPROVE_SYSTEM,
       messages: [{ role: 'user', content: userPrompt }],

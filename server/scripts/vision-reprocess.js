@@ -45,7 +45,7 @@ function parseArgs() {
   const args = process.argv.slice(2);
   const opts = {
     dir: null, limit: Infinity, concurrency: 3,
-    model: 'claude-opus-4-8', dryRun: false, force: false,
+    model: 'claude-sonnet-4-6', dryRun: false, force: false,
   };
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--dir') opts.dir = args[++i];
@@ -339,9 +339,15 @@ async function main() {
   log(`Avg questions:   ${done > 0 ? (totalQs / done).toFixed(1) : 0}`);
   log(`Input tokens:    ${totalInputTokens.toLocaleString()}`);
   log(`Output tokens:   ${totalOutputTokens.toLocaleString()}`);
-  // Cost estimate: Opus ~$15/MTok input, ~$75/MTok output
-  const estCost = (totalInputTokens / 1e6) * 15 + (totalOutputTokens / 1e6) * 75;
-  log(`Est. cost:       $${estCost.toFixed(2)} (Opus pricing)`);
+  // Pricing per model (per 1M tokens, USD)
+  const pricing = {
+    'claude-sonnet-4-6': { in: 3, out: 15 },
+    'claude-opus-4-8':   { in: 15, out: 75 },
+    'claude-haiku-4-5-20251001': { in: 1, out: 5 },
+  };
+  const p = pricing[opts.model] || pricing['claude-sonnet-4-6'];
+  const estCost = (totalInputTokens / 1e6) * p.in + (totalOutputTokens / 1e6) * p.out;
+  log(`Est. cost:       $${estCost.toFixed(2)} (${opts.model} pricing)`);
 
   if (errorList.length > 0) {
     log('\nErrors:');

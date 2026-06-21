@@ -1,0 +1,24 @@
+vision-reprocess started at 2026-06-21T19:08:51.294Z
+============================================================
+
+[2026-06-21T19:08:51.296Z] Model: claude-sonnet-4-6
+[2026-06-21T19:08:51.296Z] Concurrency: 1
+[2026-06-21T19:08:51.296Z] Dry run: false
+[2026-06-21T19:08:51.297Z] Worksheets root: /Users/alexanderkelham/Documents/Lesson-App/Worksheets
+[2026-06-21T19:08:51.300Z] Found 20 PDF files
+[2026-06-21T19:08:51.563Z] Found 1217 sheets in DB
+[2026-06-21T19:08:51.631Z] Matched 1 PDFs to DB sheets
+[2026-06-21T19:08:51.632Z] Unmatched: 0 | Skipped (already done): 0
+[2026-06-21T19:08:51.632Z] ────────────────────────────────────────────────────────────
+[2026-06-21T19:09:06.859Z] [1/1] OK · 10q · 2_Maths_PDF/Word problems 3/01 PROBLEM SHEET 3 - 1.pdf
+[2026-06-21T19:09:06.919Z] 
+============================================================
+[2026-06-21T19:09:06.920Z] SUMMARY
+[2026-06-21T19:09:06.920Z] ============================================================
+[2026-06-21T19:09:06.920Z] Processed:       1
+[2026-06-21T19:09:06.920Z] Errors:          0
+[2026-06-21T19:09:06.920Z] Total questions: 10
+[2026-06-21T19:09:06.921Z] Avg questions:   10.0
+[2026-06-21T19:09:06.964Z] Input tokens:    4,306
+[2026-06-21T19:09:06.965Z] Output tokens:   842
+[2026-06-21T19:09:06.965Z] Est. cost:       $0.03 (claude-sonnet-4-6 pricing)
