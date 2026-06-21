@@ -7,6 +7,8 @@ import SheetView from './components/student/SheetView'
 import ManagerDashboard from './components/manager/ManagerDashboard'
 import StudentDetail from './components/manager/StudentDetail'
 import LessonPlanBuilder from './components/manager/LessonPlanBuilder'
+import SheetsList from './components/manager/SheetsList'
+import SheetEditor from './components/manager/SheetEditor'
 import TutorDashboard from './components/tutor/TutorDashboard'
 import TutorStudentDetail from './components/tutor/StudentDetail'
 import LiveSessionView from './components/shared/LiveSessionView'
@@ -45,6 +47,12 @@ export default function App() {
           } />
           <Route path="/manager/lesson-plans/:planId/live" element={
             <ProtectedRoute role="manager"><LiveSessionView /></ProtectedRoute>
+          } />
+          <Route path="/manager/sheets" element={
+            <ProtectedRoute role="manager"><SheetsList /></ProtectedRoute>
+          } />
+          <Route path="/manager/sheets/:sheetId/edit" element={
+            <ProtectedRoute role="manager"><SheetEditor /></ProtectedRoute>
           } />
 
           {/* Tutor routes */}

@@ -110,6 +110,9 @@ export default function ManagerDashboard() {
             <button data-tour="add-student" onClick={() => setShowAddUser('student')} className="btn-secondary text-sm">
               + Add Student
             </button>
+            <Link to="/manager/sheets" className="btn-secondary text-sm">
+              Sheet Library
+            </Link>
             <Link data-tour="new-plan" to="/manager/lesson-plans/new" className="btn-primary text-sm">
               + New Lesson Plan
             </Link>
