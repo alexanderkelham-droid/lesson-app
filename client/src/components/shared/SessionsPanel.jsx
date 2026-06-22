@@ -215,6 +215,8 @@ export default function SessionsPanel({ planId, planTitle, canEdit = true }) {
 function SessionRow({ session, canEdit, onEdit, onAttend, onUnattend, onDelete, isPast }) {
   const attended = !!session.attendedAt
   const missed = isPast && !attended
+  const items = (session.items || []).slice().sort((a, b) => a.sequenceOrder - b.sequenceOrder)
+  const completedCount = items.filter(i => i.status === 'completed').length
   return (
     <div className={`border rounded-lg p-3 ${
       attended ? 'bg-green-50 border-green-200' : missed ? 'bg-amber-50 border-amber-200' : 'bg-white border-gray-200'
@@ -226,9 +228,50 @@ function SessionRow({ session, canEdit, onEdit, onAttend, onUnattend, onDelete, 
             {session.durationMins && <span className="text-xs text-gray-500">· {session.durationMins} min</span>}
             {attended && <span className="badge bg-green-100 text-green-700 text-[10px]">Attended</span>}
             {missed && <span className="badge bg-amber-100 text-amber-700 text-[10px]">No record</span>}
+            {items.length > 0 && (
+              <span className="text-xs text-gray-600">
+                · <strong>{completedCount}/{items.length}</strong> done
+              </span>
+            )}
           </div>
           {session.notes && (
             <p className="text-xs text-gray-600 mt-1 whitespace-pre-wrap">{session.notes}</p>
+          )}
+          {/* Items in this session (history record) */}
+          {items.length > 0 && (
+            <details className="mt-2 group">
+              <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-700">
+                <span className="text-[10px] group-open:rotate-90 inline-block transition-transform mr-1">▶</span>
+                Items in this session
+              </summary>
+              <ul className="mt-2 space-y-1 ml-3">
+                {items.map(it => {
+                  const isDone = it.status === 'completed'
+                  const resp = it.studentResponses?.[0]
+                  const title = it.customTitle || it.sheet?.title || 'Untitled'
+                  return (
+                    <li key={it.id} className="text-xs flex items-start gap-2">
+                      <span className={`flex-shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                        isDone ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-500'
+                      }`}>
+                        {isDone ? '✓' : '·'}
+                      </span>
+                      <span className="flex-1 min-w-0">
+                        <span className={`${isDone ? 'text-gray-700' : 'text-gray-500'} truncate`}>{title}</span>
+                        {resp?.score != null && (
+                          <span className={`ml-2 font-semibold ${resp.score >= 70 ? 'text-green-600' : 'text-red-500'}`}>
+                            {resp.score}%
+                          </span>
+                        )}
+                        {it.carriedFromId && (
+                          <span className="ml-2 text-[10px] text-amber-600 italic">↳ carried over</span>
+                        )}
+                      </span>
+                    </li>
+                  )
+                })}
+              </ul>
+            </details>
           )}
         </div>
         {canEdit && (

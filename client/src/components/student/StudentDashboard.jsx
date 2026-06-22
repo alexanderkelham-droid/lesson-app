@@ -28,7 +28,22 @@ export default function StudentDashboard() {
   if (loading) return <><Navbar /><LoadingSpinner /></>
   if (error)   return <><Navbar /><div className="p-6 text-red-600">{error}</div></>
 
-  const items     = plan?.items?.sort((a, b) => a.sequenceOrder - b.sequenceOrder) || []
+  // Show only items the student should be working on:
+  //  - completed items (so they can revisit)
+  //  - items in the unscheduled pool or in upcoming/today's sessions
+  // Hide items linked to PAST sessions — those are historical records,
+  // not things they need to redo. If a sheet was carried over, the clone
+  // in the upcoming session is what they'll see.
+  const now = new Date()
+  const items = (plan?.items || [])
+    .filter(i => {
+      if (i.status === 'completed') return true
+      if (!i.session) return true // unscheduled
+      // Keep if the session is upcoming or attended-but-incomplete-clone
+      // (clone has its own future session)
+      return new Date(i.session.scheduledAt) >= new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    })
+    .sort((a, b) => a.sequenceOrder - b.sequenceOrder)
   const completed = items.filter(i => i.status === 'completed').length
   const total     = items.length
   const progress  = total > 0 ? Math.round((completed / total) * 100) : 0

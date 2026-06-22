@@ -154,21 +154,21 @@ router.put('/:id', requireRole('manager', 'tutor'), async (req, res, next) => {
 // future session of the same plan. If there's no future session, items go
 // back to the unscheduled pool (sessionId = null).
 async function carryOverIncompleteItems(fromSessionId, lessonPlanId) {
+  // Pull full item rows so we can clone them
   const incompleteItems = await prisma.lessonPlanItem.findMany({
     where: {
       sessionId: fromSessionId,
       status: { not: 'completed' }
     },
-    select: { id: true }
+    select: {
+      id: true, sheetId: true, customTitle: true, customType: true,
+      tutorNotes: true, dueDate: true, sequenceOrder: true
+    }
   });
   if (incompleteItems.length === 0) return 0;
 
-  // Ensure recurring sessions exist before carrying over — otherwise we may
-  // dump items into the unscheduled pool when a future session could've been
-  // auto-generated.
+  // Ensure a future session exists to carry into
   await ensureRecurringSessions(lessonPlanId);
-
-  // Find next future session for this plan
   const nextSession = await prisma.lessonSession.findFirst({
     where: {
       lessonPlanId,
@@ -179,13 +179,38 @@ async function carryOverIncompleteItems(fromSessionId, lessonPlanId) {
     orderBy: { scheduledAt: 'asc' },
     select: { id: true }
   });
-
   const targetSessionId = nextSession?.id || null;
-  const ids = incompleteItems.map(i => i.id);
-  await prisma.lessonPlanItem.updateMany({
-    where: { id: { in: ids } },
-    data: { sessionId: targetSessionId }
+
+  // Find the current max sequenceOrder in the plan so clones go to the end
+  const last = await prisma.lessonPlanItem.findFirst({
+    where: { lessonPlanId },
+    orderBy: { sequenceOrder: 'desc' },
+    select: { sequenceOrder: true }
   });
+  let seq = (last?.sequenceOrder || 0) + 1;
+
+  // Clone each incomplete item as a fresh entity in the next session.
+  // The original item stays attached to fromSessionId, preserving its history.
+  // carriedFromId links the clone back to the original for "carried from last
+  // Tuesday" UX.
+  await prisma.$transaction(
+    incompleteItems.map(item =>
+      prisma.lessonPlanItem.create({
+        data: {
+          lessonPlanId,
+          sessionId: targetSessionId,
+          sheetId: item.sheetId,
+          customTitle: item.customTitle,
+          customType: item.customType,
+          tutorNotes: item.tutorNotes,
+          dueDate: item.dueDate,
+          sequenceOrder: seq++,
+          status: 'available',
+          carriedFromId: item.id
+        }
+      })
+    )
+  );
   return incompleteItems.length;
 }
 

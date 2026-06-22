@@ -147,14 +147,20 @@ model LessonPlanItem {
   customTitle   String?              @map("custom_title")
   customType    String?              @map("custom_type") // e.g. "ixl_maths", "ixl_english", "paper", "other"
   // Which session this item belongs to. Null = unscheduled (in plan but not yet
-  // assigned to a session). Auto-carryover updates this field when a session
-  // is marked attended with incomplete items.
+  // assigned to a session). On auto-carryover, the old item stays linked to
+  // the past session (preserving its history) and a fresh clone is created
+  // for the next session via carriedFromId.
   sessionId     Int?                 @map("session_id")
+  // Self-reference: if this item was carried over from a previous session,
+  // points at the original item. Lets us show "carried from last Tuesday".
+  carriedFromId Int?                 @map("carried_from_id")
   createdAt     DateTime             @default(now()) @map("created_at")
 
   lessonPlan       LessonPlan        @relation(fields: [lessonPlanId], references: [id], onDelete: Cascade)
   sheet            Sheet?            @relation(fields: [sheetId], references: [id])
   session          LessonSession?    @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  carriedFrom      LessonPlanItem?   @relation("ItemCarryover", fields: [carriedFromId], references: [id], onDelete: SetNull)
+  carriedTo        LessonPlanItem[]  @relation("ItemCarryover")
   studentResponses StudentResponse[]
 
   @@map("lesson_plan_items")
