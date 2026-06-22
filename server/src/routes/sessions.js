@@ -1,6 +1,7 @@
 const express = require('express');
 const prisma = require('../prisma');
 const { auth, requireRole } = require('../middleware/auth');
+const { ensureRecurringSessions } = require('../lib/recurring-sessions');
 
 const router = express.Router();
 
@@ -161,6 +162,11 @@ async function carryOverIncompleteItems(fromSessionId, lessonPlanId) {
     select: { id: true }
   });
   if (incompleteItems.length === 0) return 0;
+
+  // Ensure recurring sessions exist before carrying over — otherwise we may
+  // dump items into the unscheduled pool when a future session could've been
+  // auto-generated.
+  await ensureRecurringSessions(lessonPlanId);
 
   // Find next future session for this plan
   const nextSession = await prisma.lessonSession.findFirst({

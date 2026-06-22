@@ -25,6 +25,8 @@ async function assertCanMutatePlan(req, planId) {
   }
 }
 
+const { ensureRecurringSessions } = require('../lib/recurring-sessions');
+
 function evaluateTrigger(condition, score) {
   const match = condition.match(/score\s*([<>]=?|==)\s*(\d+(\.\d+)?)/);
   if (!match) return false;
@@ -93,6 +95,35 @@ router.get('/:id', auth, async (req, res, next) => {
     if (role === 'student' && plan.studentId !== userId) return res.status(403).json({ error: 'Forbidden' });
     if (role === 'tutor' && plan.tutorId !== userId) return res.status(403).json({ error: 'Forbidden' });
 
+    // Lazily top up recurring sessions on read. If any new sessions are
+    // generated, refetch the plan so the response reflects them.
+    const created = await ensureRecurringSessions(plan.id);
+    if (created > 0) {
+      const refreshed = await prisma.lessonPlan.findUnique({
+        where: { id: plan.id },
+        include: {
+          student: { select: { id: true, name: true, email: true } },
+          tutor:   { select: { id: true, name: true, email: true } },
+          items: {
+            orderBy: { sequenceOrder: 'asc' },
+            include: {
+              sheet: true,
+              session: { select: { id: true, scheduledAt: true, attendedAt: true } },
+              studentResponses: {
+                orderBy: { createdAt: 'desc' }, take: 1,
+                select: { id: true, score: true, completedAt: true, timeSpentSeconds: true }
+              }
+            }
+          },
+          sessions: {
+            orderBy: { scheduledAt: 'asc' },
+            select: { id: true, scheduledAt: true, attendedAt: true, durationMins: true, notes: true }
+          }
+        }
+      });
+      return res.json(refreshed);
+    }
+
     res.json(plan);
   } catch (err) { next(err); }
 });
@@ -100,7 +131,7 @@ router.get('/:id', auth, async (req, res, next) => {
 // POST /api/lesson-plans - manager or tutor
 router.post('/', requireRole('manager', 'tutor'), async (req, res, next) => {
   try {
-    const { studentId, tutorId, title, startDate, status, lessonDayOfWeek, studentNotes } = req.body;
+    const { studentId, tutorId, title, startDate, status, lessonDayOfWeek, lessonTime, studentNotes } = req.body;
     if (!studentId || !tutorId || !title) {
       return res.status(400).json({ error: 'studentId, tutorId, title required' });
     }
@@ -112,6 +143,7 @@ router.post('/', requireRole('manager', 'tutor'), async (req, res, next) => {
         startDate: startDate ? new Date(startDate) : null,
         status: status || 'draft',
         lessonDayOfWeek: lessonDayOfWeek !== undefined && lessonDayOfWeek !== '' ? parseInt(lessonDayOfWeek) : null,
+        lessonTime: lessonTime || null,
         studentNotes: studentNotes || null
       },
       include: {
@@ -119,6 +151,8 @@ router.post('/', requireRole('manager', 'tutor'), async (req, res, next) => {
         tutor:   { select: { id: true, name: true, email: true } }
       }
     });
+    // Auto-create recurring sessions if the plan has a day+time
+    await ensureRecurringSessions(plan.id);
     res.status(201).json(plan);
   } catch (err) { next(err); }
 });
@@ -128,7 +162,7 @@ router.put('/:id', requireRole('manager', 'tutor'), async (req, res, next) => {
   try {
     const planId = parseInt(req.params.id);
     await assertCanMutatePlan(req, planId);
-    const { title, startDate, status, tutorId, lessonDayOfWeek, studentNotes } = req.body;
+    const { title, startDate, status, tutorId, lessonDayOfWeek, lessonTime, studentNotes } = req.body;
     // Tutors cannot reassign plans to another tutor
     const safeTutorId = req.user.role === 'manager' ? tutorId : undefined;
     const plan = await prisma.lessonPlan.update({
@@ -139,9 +173,12 @@ router.put('/:id', requireRole('manager', 'tutor'), async (req, res, next) => {
         ...(status && { status }),
         ...(safeTutorId && { tutorId: parseInt(safeTutorId) }),
         ...(lessonDayOfWeek !== undefined && { lessonDayOfWeek: lessonDayOfWeek !== '' && lessonDayOfWeek !== null ? parseInt(lessonDayOfWeek) : null }),
+        ...(lessonTime !== undefined && { lessonTime: lessonTime || null }),
         ...(studentNotes !== undefined && { studentNotes: studentNotes || null })
       }
     });
+    // Top up recurring sessions whenever day/time may have changed
+    await ensureRecurringSessions(planId);
     res.json(plan);
   } catch (err) { next(err); }
 });

@@ -574,6 +574,7 @@ export default function LessonPlanBuilder() {
   const [selectedDate, setSelectedDate] = useState('')
   const [status, setStatus]     = useState('draft')
   const [lessonDayOfWeek, setLessonDayOfWeek] = useState(searchParams.get('day') ?? '')
+  const [lessonTime, setLessonTime] = useState('15:00')
   const [studentNotes, setStudentNotes] = useState('')
 
   // Reference: previous plan(s) for this student
@@ -750,6 +751,7 @@ export default function LessonPlanBuilder() {
           setSelectedDate(plan.startDate?.split('T')[0] || '')
           setStatus(plan.status)
           setLessonDayOfWeek(plan.lessonDayOfWeek !== null && plan.lessonDayOfWeek !== undefined ? String(plan.lessonDayOfWeek) : '')
+          setLessonTime(plan.lessonTime || '15:00')
           setPlanItems(plan.items.sort((a, b) => a.sequenceOrder - b.sequenceOrder).map(i => ({
             id: i.id,
             sheetId: i.sheetId,
@@ -827,6 +829,17 @@ export default function LessonPlanBuilder() {
     return evts
   }, [studentDays, selectedDate])
 
+  // Next upcoming non-attended session. Used as the default assignment for
+  // any new item added in the builder — Magda's "the assumption should
+  // always be the lesson is for the next session" requirement.
+  const nextSessionId = useMemo(() => {
+    const now = Date.now()
+    const upcoming = sessions
+      .filter(s => !s.attendedAt && new Date(s.scheduledAt).getTime() >= now)
+      .sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt))
+    return upcoming[0]?.id || null
+  }, [sessions])
+
   function addSheet(sheet) {
     if (planItems.find(i => i.sheetId === sheet.id)) return
     setPlanItems(prev => [...prev, {
@@ -834,6 +847,7 @@ export default function LessonPlanBuilder() {
       sheetId: sheet.id,
       sheet,
       scheduledDate: null,
+      sessionId: nextSessionId,
       status: 'available'
     }])
   }
@@ -846,6 +860,7 @@ export default function LessonPlanBuilder() {
       customTitle,
       scheduledDate: null,
       tutorNotes: '',
+      sessionId: nextSessionId,
       status: 'available'
     }])
     setShowCustomItem(false)
@@ -905,6 +920,7 @@ export default function LessonPlanBuilder() {
           title, studentId, tutorId, status,
           startDate: selectedDate || null,
           lessonDayOfWeek: lessonDayOfWeek !== '' ? lessonDayOfWeek : null,
+          lessonTime: lessonTime || null,
           studentNotes: studentNotes || null
         })
         plan = res.data
@@ -913,6 +929,7 @@ export default function LessonPlanBuilder() {
           title, tutorId, status,
           startDate: selectedDate || null,
           lessonDayOfWeek: lessonDayOfWeek !== '' ? lessonDayOfWeek : null,
+          lessonTime: lessonTime || null,
           studentNotes: studentNotes || null
         })
         plan = res.data
@@ -1058,7 +1075,7 @@ export default function LessonPlanBuilder() {
                         <p className="text-xs text-gray-500 mb-2">
                           {selectedStudent?.name}'s lesson days — click to pick the next date:
                         </p>
-                        <div className="flex flex-wrap gap-2 mb-3">
+                        <div className="flex flex-wrap items-center gap-2 mb-3">
                           {studentDays.map(d => (
                             <button
                               key={d}
@@ -1073,6 +1090,15 @@ export default function LessonPlanBuilder() {
                               {DAY_NAMES[d]}
                             </button>
                           ))}
+                          <span className="text-xs text-gray-400 ml-2">at</span>
+                          <input
+                            type="time"
+                            value={lessonTime}
+                            onChange={e => setLessonTime(e.target.value)}
+                            className="input text-sm py-1.5 w-28"
+                            title="What time does this lesson start each week?"
+                          />
+                          <span className="text-xs text-gray-400">every week</span>
                         </div>
                       </>
                     ) : (
@@ -1222,7 +1248,7 @@ export default function LessonPlanBuilder() {
             )}
 
             <div className="card">
-              <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+              <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
                 <h2 className="font-semibold text-gray-900">Plan Items ({planItems.length})</h2>
                 <div className="flex items-center gap-3">
                   <button
@@ -1234,6 +1260,24 @@ export default function LessonPlanBuilder() {
                   <p className="text-xs text-gray-400 hidden sm:block">Drag to reorder</p>
                 </div>
               </div>
+              {/* Next-session hint */}
+              {nextSessionId && (() => {
+                const ns = sessions.find(s => s.id === nextSessionId)
+                if (!ns) return null
+                const d = new Date(ns.scheduledAt)
+                const dateLabel = d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
+                const timeLabel = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+                return (
+                  <p className="text-xs text-brand-700 bg-brand-50 px-3 py-1.5 rounded mb-3">
+                    📌 New items will be added to the next session: <strong>{dateLabel} at {timeLabel}</strong>. You can move them with the calendar icon on each item.
+                  </p>
+                )
+              })()}
+              {!nextSessionId && (lessonDayOfWeek === '' || !lessonTime) && (
+                <p className="text-xs text-amber-700 bg-amber-50 px-3 py-1.5 rounded mb-3">
+                  📌 Set a lesson day and time above so new items auto-land in the next session.
+                </p>
+              )}
 
               {planItems.length === 0 ? (
                 <div className="text-center py-10 border-2 border-dashed border-gray-200 rounded-xl text-gray-400">

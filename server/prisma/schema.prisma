@@ -98,6 +98,7 @@ model LessonPlan {
   startDate       DateTime?        @map("start_date")
   status          LessonPlanStatus @default(draft)
   lessonDayOfWeek Int?             @map("lesson_day_of_week")
+  lessonTime      String?          @map("lesson_time") // e.g. "18:00" local time
   boardUuid       String?          @map("board_uuid")
   studentNotes    String?          @map("student_notes")
   createdAt       DateTime         @default(now()) @map("created_at")

@@ -1,8 +1,5 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Tldraw } from 'tldraw'
-import { useSyncDemo } from '@tldraw/sync'
-import 'tldraw/tldraw.css'
 import { useAuth } from '../../context/AuthContext'
 import LoadingSpinner from './LoadingSpinner'
 import SheetPreviewModal from './SheetPreviewModal'
@@ -15,13 +12,11 @@ export default function LiveSessionView() {
   const { user } = useAuth()
 
   const [planDetails, setPlanDetails] = useState(null)
-  const [boardUuid, setBoardUuid]     = useState(null)
   const [sessionId, setSessionId]     = useState(null)
   const [activeItemId, setActiveItemId] = useState(null)
   const [loading, setLoading]         = useState(true)
   const [error, setError]             = useState('')
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [mainView, setMainView]       = useState('sheet') // 'sheet' | 'whiteboard'
   const [showAddSheet, setShowAddSheet] = useState(false)
   const [allSheets, setAllSheets]       = useState([])
   const [sheetSearch, setSheetSearch]   = useState('')
@@ -38,7 +33,6 @@ export default function LiveSessionView() {
           api.get(`/lesson-plans/${planId}/live-session`),
           api.get(`/lesson-plans/${planId}`)
         ])
-        setBoardUuid(sessionRes.data.boardUuid)
         setSessionId(sessionRes.data.sessionId)
         setActiveItemId(sessionRes.data.activeItemId)
         setPlanDetails(planRes.data)
@@ -121,7 +115,7 @@ export default function LiveSessionView() {
     )
   }
 
-  if (error || !boardUuid) {
+  if (error || !sessionId) {
     return (
       <div className="h-screen flex flex-col items-center justify-center px-4">
         <div className="card max-w-md text-center">
@@ -143,22 +137,17 @@ export default function LiveSessionView() {
 
   return (
     <>
-      <Whiteboard
-        boardUuid={boardUuid}
+      <LiveRoom
         sessionId={sessionId}
         isTeacher={isTeacher}
-        user={user}
         items={items}
         planDetails={planDetails}
         sidebarOpen={sidebarOpen}
         setSidebarOpen={setSidebarOpen}
-        mainView={mainView}
-        setMainView={setMainView}
         activeItem={activeItem}
         onSelectItem={setActiveItem}
         onEndSession={endSession}
         onAddSheet={isTeacher ? openAddSheet : null}
-        onPreviewSheet={(id) => setPreviewSheetId(id)}
       />
 
       {/* Add sheet picker modal */}
@@ -234,107 +223,11 @@ export default function LiveSessionView() {
 
 // ─── Sheet panel: read-only preview of questions ─────────────────────────────
 
-function SheetPanel({ sheet, onClose, sheetLoading }) {
-  if (sheetLoading) {
-    return (
-      <aside className="w-[420px] bg-white border-l border-gray-200 flex items-center justify-center">
-        <LoadingSpinner />
-      </aside>
-    )
-  }
-  if (!sheet) return null
-
-  const questions = sheet.contentJson?.questions || []
-
-  return (
-    <aside className="w-[420px] bg-white border-l border-gray-200 flex flex-col flex-shrink-0">
-      <div className="px-4 py-3 border-b border-gray-200 flex items-start justify-between gap-2 bg-gradient-to-r from-brand-50 to-indigo-50">
-        <div className="min-w-0">
-          <h2 className="font-semibold text-gray-900 text-sm truncate">{sheet.title}</h2>
-          <p className="text-xs text-gray-500">{sheet.subject} · {sheet.topic}</p>
-        </div>
-        <button
-          onClick={onClose}
-          className="p-1 rounded hover:bg-white/60 text-gray-500 flex-shrink-0"
-          title="Close worksheet"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
-        {questions.length === 0 && (
-          <p className="text-center text-gray-400 text-sm py-8">No questions on this worksheet.</p>
-        )}
-        {questions.map((q, i) => (
-          <div key={q.id || i} className="bg-gray-50 border border-gray-200 rounded-lg p-3">
-            <div className="flex items-start gap-2">
-              <span className="flex-shrink-0 w-6 h-6 bg-brand-600 text-white rounded-full text-xs font-bold flex items-center justify-center">
-                {i + 1}
-              </span>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">{q.prompt}</p>
-                {q.options && q.options.length > 0 && (
-                  <ul className="mt-2 space-y-1">
-                    {q.options.map((opt, j) => (
-                      <li key={j} className="text-xs text-gray-600 flex items-center gap-2">
-                        <span className="font-mono text-gray-400">{String.fromCharCode(97 + j)})</span>
-                        {opt}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {q.pairs && (
-                  <div className="mt-2 space-y-1">
-                    {q.pairs.map((pair, j) => (
-                      <div key={j} className="text-xs text-gray-600">
-                        <span className="font-medium">{pair.left}</span>
-                        <span className="text-gray-400 mx-1">↔</span>
-                        <span>?</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {q.correct && q.correct.length > 0 && (
-                  <details className="mt-2">
-                    <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600">Show answer</summary>
-                    <p className="text-xs text-green-600 font-medium mt-1">
-                      {q.correct.join(' / ')}
-                    </p>
-                  </details>
-                )}
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="px-4 py-3 border-t border-gray-200 bg-gray-50 text-xs text-gray-500">
-        Reference only — work through the questions on the whiteboard.
-      </div>
-    </aside>
-  )
-}
-
-function Whiteboard({
-  boardUuid, sessionId, isTeacher, user, items, planDetails,
-  sidebarOpen, setSidebarOpen, mainView, setMainView,
-  activeItem, onSelectItem, onEndSession, onAddSheet, onPreviewSheet,
+function LiveRoom({
+  sessionId, isTeacher, items, planDetails,
+  sidebarOpen, setSidebarOpen,
+  activeItem, onSelectItem, onEndSession, onAddSheet,
 }) {
-  // Memoize userInfo — fresh object literal each render breaks useSyncDemo.
-  const userInfo = useMemo(() => ({
-    id: String(user?.id || 'anon'),
-    name: user?.name || 'User',
-    color: isTeacher ? '#a855f7' : '#3b82f6'
-  }), [user?.id, user?.name, isTeacher])
-
-  const store = useSyncDemo({
-    roomId: `lesson-app-${boardUuid}`,
-    userInfo
-  })
-
   const activeItemSheet = activeItem?.sheet
   const isCustomActive  = activeItem && !activeItem.sheet
   const hasInteractive  = !!activeItemSheet
@@ -363,26 +256,6 @@ function Whiteboard({
           </div>
         </div>
 
-        {/* View toggle */}
-        <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1 hidden md:flex">
-          <button
-            onClick={() => setMainView('sheet')}
-            className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
-              mainView === 'sheet' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            📝 Sheet
-          </button>
-          <button
-            onClick={() => setMainView('whiteboard')}
-            className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
-              mainView === 'whiteboard' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            ✏️ Whiteboard
-          </button>
-        </div>
-
         <div className="flex items-center gap-2 flex-shrink-0">
           <span className={`badge ${isTeacher ? 'bg-redwood-100 text-redwood-700' : 'bg-forest-100 text-forest-700'}`}>
             {isTeacher ? 'Teacher' : 'Student'}
@@ -397,7 +270,7 @@ function Whiteboard({
         </div>
       </header>
 
-      {/* Main: sidebar + content */}
+      {/* Main: sidebar + sheet */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left sidebar */}
         {sidebarOpen && (
@@ -462,58 +335,46 @@ function Whiteboard({
           </aside>
         )}
 
-        {/* Main content area */}
+        {/* Main content area — shared interactive sheet only */}
         <main className="flex-1 relative min-w-0 overflow-hidden">
-          {/* Sheet view */}
-          {mainView === 'sheet' && (
-            <>
-              {hasInteractive ? (
-                <InteractiveSheet
-                  sessionId={sessionId}
-                  sheetId={activeItemSheet.id}
-                  isTeacher={isTeacher}
-                  onCloseSheet={isTeacher ? () => onSelectItem(null) : null}
-                />
-              ) : isCustomActive ? (
-                <div className="h-full flex items-center justify-center p-8">
-                  <div className="card text-center max-w-md">
-                    <p className="text-4xl mb-3">📋</p>
-                    <h3 className="font-serif font-bold text-gray-900 text-lg mb-1">
-                      {activeItem.customTitle}
-                    </h3>
-                    <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">
-                      {activeItem.customType === 'ixl_maths' ? 'IXL Maths'
-                        : activeItem.customType === 'ixl_english' ? 'IXL English'
-                        : activeItem.customType === 'paper' ? 'Paper activity'
-                        : 'Custom task'}
-                    </p>
-                    <p className="text-sm text-gray-600">
-                      Work on this externally. {isTeacher && 'Use the whiteboard tab for scratch work, or mark as done from the student\'s profile.'}
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <div className="h-full flex items-center justify-center p-8 bg-gradient-to-br from-cream to-redwood-50">
-                  <div className="text-center max-w-md">
-                    <p className="text-5xl mb-3">📚</p>
-                    <h3 className="font-serif font-bold text-gray-900 text-xl mb-2">
-                      {isTeacher ? 'Pick an item from the sidebar' : 'Waiting for your tutor'}
-                    </h3>
-                    <p className="text-sm text-forest-700">
-                      {isTeacher
-                        ? 'Click any item on the left to start. The student will see the same sheet when you open it.'
-                        : 'Your tutor will open a sheet to work on shortly. Hang tight!'}
-                    </p>
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-
-          {/* Whiteboard view */}
-          {mainView === 'whiteboard' && (
-            <div className="h-full">
-              <Tldraw store={store} autoFocus />
+          {hasInteractive ? (
+            <InteractiveSheet
+              sessionId={sessionId}
+              sheetId={activeItemSheet.id}
+              isTeacher={isTeacher}
+              onCloseSheet={isTeacher ? () => onSelectItem(null) : null}
+            />
+          ) : isCustomActive ? (
+            <div className="h-full flex items-center justify-center p-8">
+              <div className="card text-center max-w-md">
+                <p className="text-4xl mb-3">📋</p>
+                <h3 className="font-serif font-bold text-gray-900 text-lg mb-1">
+                  {activeItem.customTitle}
+                </h3>
+                <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">
+                  {activeItem.customType === 'ixl_maths' ? 'IXL Maths'
+                    : activeItem.customType === 'ixl_english' ? 'IXL English'
+                    : activeItem.customType === 'paper' ? 'Paper activity'
+                    : 'Custom task'}
+                </p>
+                <p className="text-sm text-gray-600">
+                  Work on this externally. {isTeacher && 'Mark as done from the student\'s profile when finished.'}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="h-full flex items-center justify-center p-8 bg-gradient-to-br from-cream to-redwood-50">
+              <div className="text-center max-w-md">
+                <p className="text-5xl mb-3">📚</p>
+                <h3 className="font-serif font-bold text-gray-900 text-xl mb-2">
+                  {isTeacher ? 'Pick an item from the sidebar' : 'Waiting for your tutor'}
+                </h3>
+                <p className="text-sm text-forest-700">
+                  {isTeacher
+                    ? 'Click any item on the left to start. The student will see the same sheet when you open it.'
+                    : 'Your tutor will open a sheet to work on shortly. Hang tight!'}
+                </p>
+              </div>
             </div>
           )}
         </main>
