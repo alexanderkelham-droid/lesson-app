@@ -6,6 +6,7 @@ import LoadingSpinner from '../shared/LoadingSpinner'
 import AddStudentModal from './AddStudentModal'
 import ConfirmModal from '../shared/ConfirmModal'
 import SessionsPanel from '../shared/SessionsPanel'
+import SessionHistory from '../shared/SessionHistory'
 import api from '../../lib/api'
 
 const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
@@ -29,6 +30,7 @@ export default function StudentDetail() {
   const [logs, setLogs]         = useState([])
   const [loading, setLoading]   = useState(true)
   const [showEdit, setShowEdit] = useState(false)
+  const [tab, setTab] = useState('plan') // 'plan' | 'history'
   const [confirmDeletePlan, setConfirmDeletePlan]       = useState(false)
   const [confirmDeleteStudent, setConfirmDeleteStudent] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -244,8 +246,29 @@ export default function StudentDetail() {
           </div>
         </div>
 
-        {/* Plan selector */}
-        {plans.length > 1 && (
+        {/* Plan / History tabs */}
+        <div className="flex gap-1 mb-4 bg-gray-100 p-1 rounded-lg w-fit">
+          {[
+            { key: 'plan',    label: 'Current Plan' },
+            { key: 'history', label: 'History' },
+          ].map(t => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                tab === t.key ? 'bg-white shadow-sm text-gray-900' : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {tab === 'history' && (
+          <SessionHistory studentId={studentId} />
+        )}
+
+        {tab === 'plan' && plans.length > 1 && (
           <div className="flex gap-2 mb-4 flex-wrap">
             {plans.map(p => (
               <button
@@ -259,7 +282,7 @@ export default function StudentDetail() {
           </div>
         )}
 
-        {activePlan && (
+        {tab === 'plan' && activePlan && (
           <>
             <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
               <h2 className="text-base font-semibold text-gray-900">{activePlan.title}</h2>
@@ -390,7 +413,7 @@ export default function StudentDetail() {
           </>
         )}
 
-        {plans.length === 0 && (
+        {tab === 'plan' && plans.length === 0 && (
           <div className="card text-center py-12 text-gray-400">
             <p className="mb-3">No lesson plans assigned to this student.</p>
             <button onClick={() => navigate(`${basePath}/lesson-plans/new?studentId=${studentId}`)} className="btn-primary text-sm">

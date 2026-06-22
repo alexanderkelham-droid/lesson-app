@@ -366,6 +366,16 @@ export default function SheetView() {
               </div>
             )}
 
+            {/* Reading passage (for reading comprehension sheets) */}
+            {sheet.contentJson?.passage && (
+              <div className="card mb-4 bg-cream border-l-4 border-l-redwood-500">
+                <p className="text-xs uppercase tracking-wider font-semibold text-redwood-700 mb-2">📖 Read the story</p>
+                <div className="text-base text-gray-800 leading-relaxed whitespace-pre-wrap font-serif">
+                  {sheet.contentJson.passage}
+                </div>
+              </div>
+            )}
+
             <form onSubmit={handleSubmit} className="space-y-4">
               {questions.map((q, idx) => {
                 const correct = reviewMode ? isQuestionCorrect(q, answers[q.id]) : null

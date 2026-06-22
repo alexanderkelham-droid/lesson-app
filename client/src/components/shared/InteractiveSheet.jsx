@@ -150,6 +150,16 @@ export default function InteractiveSheet({
 
       {/* Questions */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        {/* Reading passage (if this is a reading-comprehension sheet) */}
+        {sheet.contentJson?.passage && (
+          <div className="rounded-xl border border-redwood-200 bg-cream p-4 mb-2">
+            <p className="text-xs uppercase tracking-wider font-semibold text-redwood-700 mb-2">📖 Read the story</p>
+            <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap font-serif">
+              {sheet.contentJson.passage}
+            </div>
+          </div>
+        )}
+
         {questions.length === 0 && (
           <p className="text-center text-gray-400 text-sm py-12">This sheet has no questions to display.</p>
         )}
