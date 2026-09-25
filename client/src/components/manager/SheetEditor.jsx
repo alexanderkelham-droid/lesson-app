@@ -18,6 +18,7 @@ export default function SheetEditor() {
 
   const [sheet, setSheet] = useState(null)
   const [questions, setQuestions] = useState([])
+  const [passage, setPassage] = useState('')
   const [title, setTitle] = useState('')
   const [subject, setSubject] = useState('')
   const [topic, setTopic] = useState('')
@@ -37,6 +38,7 @@ export default function SheetEditor() {
         setSubject(res.data.subject || '')
         setTopic(res.data.topic || '')
         setQuestions(res.data.contentJson?.questions || [])
+        setPassage(res.data.contentJson?.passage || '')
       })
       .catch(err => setError(err.response?.data?.error || 'Failed to load sheet'))
       .finally(() => setLoading(false))
@@ -79,7 +81,10 @@ export default function SheetEditor() {
       const renumbered = questions.map((q, i) => ({ ...q, id: q.id || `q${i + 1}` }))
       await api.put(`/sheets/${sheetId}`, {
         title, subject, topic,
-        contentJson: { questions: renumbered }
+        contentJson: {
+          ...(passage && passage.trim() && { passage }),
+          questions: renumbered
+        }
       })
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
@@ -96,7 +101,7 @@ export default function SheetEditor() {
     try {
       const res = await api.post(`/sheets/${sheetId}/ai-improve`, {
         // Send the current state (in case unsaved edits) so AI improves what's on screen
-        contentJson: { questions }
+        contentJson: { ...(passage && passage.trim() && { passage }), questions }
       })
       setImprovement(res.data.improved)
       setShowDiff(true)
@@ -157,6 +162,39 @@ export default function SheetEditor() {
               <input value={topic} onChange={e => setTopic(e.target.value)} className="input" />
             </div>
           </div>
+        </div>
+
+        {/* Reading passage (optional) */}
+        <div className="card mb-4">
+          <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+            <h2 className="font-serif font-bold text-gray-900 text-base">
+              📖 Reading passage
+              <span className="ml-2 text-xs text-gray-400 font-normal">(optional — shown to the student before the questions)</span>
+            </h2>
+            {passage && (
+              <button
+                type="button"
+                onClick={() => setPassage('')}
+                className="text-xs text-red-500 hover:bg-red-50 px-2 py-1 rounded"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          <textarea
+            value={passage}
+            onChange={e => setPassage(e.target.value)}
+            rows={passage ? Math.min(20, Math.max(6, passage.split('\n').length + 2)) : 6}
+            className="input text-sm leading-relaxed font-serif resize-y"
+            placeholder="Leave blank for a regular question sheet. For reading-comprehension sheets, paste the story / passage here — students will see it above the questions.
+
+You can use emojis 🐶 🌳 ☔ as illustrations."
+          />
+          {passage && (
+            <p className="text-xs text-gray-400 mt-1.5">
+              {passage.trim().split(/\s+/).filter(Boolean).length} words · {passage.length} characters
+            </p>
+          )}
         </div>
 
         {/* AI improve banner */}

@@ -38,6 +38,15 @@ export default function SheetPreviewModal({ sheetId, onClose, onAdd, alreadyAdde
         <div className="flex-1 overflow-y-auto p-5">
           {loading ? <LoadingSpinner /> : (
             <div className="space-y-3">
+              {/* Reading passage (if any) */}
+              {sheet?.contentJson?.passage && (
+                <div className="rounded-lg border border-redwood-200 bg-cream p-4">
+                  <p className="text-xs uppercase tracking-wider font-semibold text-redwood-700 mb-2">📖 Reading passage</p>
+                  <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap font-serif">
+                    {sheet.contentJson.passage}
+                  </div>
+                </div>
+              )}
               {(sheet?.contentJson?.questions || []).map((q, i) => (
                 <div key={q.id || i} className="bg-gray-50 border border-gray-200 rounded-lg p-3">
                   <div className="flex items-start gap-2">
