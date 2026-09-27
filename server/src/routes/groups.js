@@ -9,14 +9,13 @@ const { requireRole } = require('../middleware/auth');
 const { httpError, parseId, validateIdParam, parseDate } = require('../lib/access');
 const { zonedParts, zonedToUtc, zonedDayRange, zonedDateKey } = require('../lib/time');
 const { carryOverIncompleteItems, cancelLessonSession } = require('../lib/lessons');
-const { sendOriginalsPack } = require('../lib/originals-pack');
+const { sendOriginalsPack, packGroup } = require('../lib/originals-pack');
 
 const router = express.Router();
 router.param('id', validateIdParam);
 router.param('studentId', validateIdParam);
 
 const staff = requireRole('manager', 'tutor');
-const CUSTOM_LABELS = { ixl_maths: 'IXL Maths', ixl_english: 'IXL English', paper: 'Paper activity', other: 'Task' };
 
 const MEMBER_SELECT = {
   id: true, scheduledAt: true, attendedAt: true, durationMins: true, notes: true, lessonPlanId: true,
@@ -330,17 +329,8 @@ router.delete('/:id', staff, async (req, res, next) => {
 router.get('/:id/originals', staff, async (req, res, next) => {
   try {
     const group = await loadGroup(req, parseId(req.params.id));
-    const tz = process.env.APP_TIMEZONE || 'Europe/London';
-    const when = new Date(group.scheduledAt).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: tz });
-    const packs = shapeGroup(group, { withItems: true }).members.map(m => ({
-      heading: m.student.name,
-      subheading: `${group.title} · ${when} · Tutor: ${group.tutor.name}`,
-      items: m.items.map(i => ({
-        sheetId: i.sheet?.id || null,
-        title: i.sheet ? i.sheet.title : i.customTitle,
-        kind: i.sheet ? null : (CUSTOM_LABELS[i.customType] || 'Task'),
-        done: i.status === 'completed',
-      })),
+    const packs = shapeGroup(group, { withItems: true }).members.map(m => packGroup({
+      student: m.student, tutorName: group.tutor.name, date: group.scheduledAt, items: m.items, className: group.title,
     }));
     if (!packs.length) return res.status(400).json({ error: 'This group has no students yet' });
     await sendOriginalsPack(res, packs, `${group.title}-${zonedDateKey(group.scheduledAt)}`);

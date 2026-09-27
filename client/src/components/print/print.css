@@ -98,3 +98,18 @@
   .print-root .paper + .paper { break-before: page; page-break-before: always; }
   .print-root * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
+
+/* Lesson sheet cover (matches the centre's paper template) */
+.print-root .lesson-sheet { width: 100%; border-collapse: collapse; margin-top: 6mm; font-family: Arial, Helvetica, sans-serif; color: #1c1917; }
+.print-root .lesson-sheet td { border: 1px solid #3f3f3f; padding: 6px 8px; vertical-align: top; font-size: 11pt; }
+.print-root .lesson-sheet .ls-welcome td { height: 18mm; vertical-align: middle; text-align: center; font-weight: 700; font-size: 14pt; color: #33774a; }
+.print-root .lesson-sheet .ls-student td { height: 16mm; vertical-align: middle; font-weight: 700; color: #a8341a; }
+.print-root .lesson-sheet .ls-name { font-size: 15pt; }
+.print-root .lesson-sheet .ls-date { font-size: 13pt; text-align: center; }
+.print-root .lesson-sheet .ls-meta td { height: 12mm; vertical-align: middle; text-align: center; font-weight: 700; font-size: 13pt; color: #33774a; }
+.print-root .lesson-sheet .ls-meta .ls-score-head { color: #a8341a; font-size: 11pt; }
+.print-root .lesson-sheet .ls-row td { height: 9mm; }
+.print-root .lesson-sheet .ls-num { font-size: 10pt; }
+.print-root .lesson-sheet .ls-online { color: #33774a; }
+.print-root .lesson-sheet .ls-note { font-size: 8.5pt; color: #57534e; margin-top: 2px; }
+.print-root .lesson-sheet .ls-homework td { height: 16mm; }

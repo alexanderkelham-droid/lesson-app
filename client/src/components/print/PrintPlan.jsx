@@ -7,7 +7,6 @@ import { PrintedSheet, AnswerKey } from './PrintedSheet'
 import { PrintToolbar, ToggleChip, OriginalPdfButton, PrintMessage } from './PrintToolbar'
 import './print.css'
 
-const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
 const CUSTOM_LABELS = { ixl_maths: 'IXL Maths', ixl_english: 'IXL English', paper: 'Paper task' }
 
@@ -24,6 +23,64 @@ function itemKind(item) {
 }
 
 // /print/plan/:planId?session=<id|next|all|unscheduled>&answers=0|1&notes=0|1
+const SUBJECTS = { maths: 'Maths', english: 'English', both: 'English & Maths' }
+
+function ordinalDate(d) {
+  const day = d.getDate()
+  const suffix = ['th', 'st', 'nd', 'rd'][((day % 100) - 20) % 10] || ['th', 'st', 'nd', 'rd'][day % 100] || 'th'
+  return `${day}${suffix} ${d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}`
+}
+
+// Score column: score if marked, TBC if awaiting marking, "done" for tasks without a score
+function scoreText(item) {
+  if (item.status !== 'completed') return ''
+  const r = item.studentResponses?.[0]
+  if (!r) return 'done'
+  return r.score != null ? String(Math.round(r.score)) : 'TBC'
+}
+
+function sheetLabel(item) {
+  if (!item.sheet) return itemTitle(item)
+  const { topic, title } = item.sheet
+  return topic && !title.toLowerCase().includes(topic.toLowerCase()) ? `${topic}, ${title}` : title
+}
+
+// Bordered lesson sheet matching the centre's paper template
+function LessonSheet({ student, tutor, date, items, showNotes, emptyLabel }) {
+  const rows = [...items]
+  while (rows.length < 9) rows.push(null)
+  return (
+    <table className="lesson-sheet">
+      <colgroup><col style={{ width: '7%' }} /><col style={{ width: '36%' }} /><col style={{ width: '38%' }} /><col style={{ width: '19%' }} /></colgroup>
+      <tbody>
+        <tr className="ls-welcome"><td colSpan={3}>Welcome to Redwood Scholars Tuition!</td><td /></tr>
+        <tr className="ls-student">
+          <td colSpan={2} className="ls-name">{student?.name}</td>
+          <td className="ls-date">{date ? ordinalDate(date) : emptyLabel}</td>
+          <td />
+        </tr>
+        <tr className="ls-meta">
+          <td colSpan={2}>{SUBJECTS[student?.subjectFocus] || ''}</td>
+          <td>Tutor: {tutor?.name || ''}</td>
+          <td className="ls-score-head">Score%</td>
+        </tr>
+        {rows.map((item, i) => (
+          <tr key={item?.id || `blank-${i}`} className="ls-row avoid-break">
+            <td className="ls-num">{i + 1}</td>
+            <td colSpan={2} className={item && !item.sheet ? 'ls-online' : ''}>
+              {item && sheetLabel(item)}
+              {item?.sheet && <span className="no-print" style={{ marginLeft: 8 }}><OriginalPdfButton sheet={item.sheet} /></span>}
+              {showNotes && item?.tutorNotes && <div className="ls-note">Note: {item.tutorNotes}</div>}
+            </td>
+            <td>{item && scoreText(item)}</td>
+          </tr>
+        ))}
+        <tr className="ls-homework"><td /><td colSpan={2}><strong>Homework:</strong></td><td /></tr>
+      </tbody>
+    </table>
+  )
+}
+
 // A "lesson pack": cover page + every sheet (each on a new page) + optional key.
 export default function PrintPlan() {
   const { planId } = useParams()
@@ -66,8 +123,6 @@ export default function PrintPlan() {
   const sheetItems = items.filter(i => i.sheet)
   const scopeLabel = data.scope === 'session' ? null
     : data.scope === 'unscheduled' ? 'Unscheduled items' : 'All items in plan'
-  const slot = plan.lessonDayOfWeek != null
-    ? `${DAY_NAMES[plan.lessonDayOfWeek]}s${plan.lessonTime ? ` at ${plan.lessonTime}` : ''}` : null
   const noteItems = items.filter(i => i.tutorNotes)
 
   return (
@@ -80,51 +135,15 @@ export default function PrintPlan() {
       <div>
         {/* Cover page */}
         <section className="paper cover">
-          {/* One brand mark only: the logo carries the name */}
-          <div className="cover-brand">
-            <RedwoodLogo variant="wordmark" size="sm" className="text-gray-900" trunkColor="#000" />
-            <span>Lesson pack</span>
-          </div>
-          <h1>{student?.name}</h1>
-          <p style={{ fontSize: '13pt' }}>{plan.title}</p>
-          <dl>
-            <dt>Lesson</dt>
-            <dd>
-              {lessonDate
-                ? `${lessonDate.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}, ${lessonDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}${data.session.durationMins ? ` (${data.session.durationMins} min)` : ''}`
-                : scopeLabel}
-            </dd>
-            <dt>Tutor</dt>
-            <dd>{tutor?.name || '—'}</dd>
-            {slot && <><dt>Usual slot</dt><dd>{slot}</dd></>}
-          </dl>
-
-          <h2 style={{ fontWeight: 700, fontSize: '13pt', margin: '8px 0 4px' }}>In this lesson</h2>
-          {items.length === 0 ? (
-            <p className="muted">No items in this {data.scope === 'session' ? 'session' : 'selection'} yet.</p>
-          ) : (
-            <ul className="checklist">
-              {items.map((item, i) => (
-                <li key={item.id} className="avoid-break">
-                  <span className="tick-box" />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div>
-                      {i + 1}. {itemTitle(item)}
-                      {item.status === 'completed' && <span className="muted"> (already completed)</span>}
-                    </div>
-                    <div className="muted">
-                      {itemKind(item)}
-                      {!item.sheet && ' · not printed'}
-                    </div>
-                    {notes && item.tutorNotes && <div className="muted"><strong>Note:</strong> {item.tutorNotes}</div>}
-                  </div>
-                  {item.sheet && (
-                    <div className="no-print"><OriginalPdfButton sheet={item.sheet} /></div>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
+          {/* The centre's lesson sheet layout (same as the original-PDF packs) */}
+          <LessonSheet
+            student={student}
+            tutor={tutor}
+            date={lessonDate}
+            items={items}
+            showNotes={notes}
+            emptyLabel={scopeLabel}
+          />
 
           {notes && (data.session?.notes || plan.studentNotes || noteItems.length > 0) && (
             <div className="notes-box">

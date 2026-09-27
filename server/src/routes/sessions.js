@@ -6,7 +6,7 @@ const { zonedDayRange, zonedDateKey } = require('../lib/time');
 const { calculateScore, isAnswerCorrect, hasAnswerKey } = require('../lib/scoring');
 const { removeStaleCarryCopies } = require('../lib/items');
 const { carryOverIncompleteItems, cancelLessonSession } = require('../lib/lessons');
-const { sendOriginalsPack } = require('../lib/originals-pack');
+const { sendOriginalsPack, packGroup } = require('../lib/originals-pack');
 const { httpError, parseId, validateIdParam, getPlanForAccess, parseDate } = require('../lib/access');
 
 const router = express.Router();
@@ -109,25 +109,21 @@ router.get('/originals', requireRole('manager', 'tutor'), async (req, res, next)
       orderBy: { scheduledAt: 'asc' },
       select: {
         scheduledAt: true,
-        lessonPlan: { select: { title: true, student: { select: { name: true } }, tutor: { select: { name: true } } } },
+        lessonPlan: { select: { title: true, student: { select: { name: true, subjectFocus: true } }, tutor: { select: { name: true } } } },
         items: {
           orderBy: { sequenceOrder: 'asc' },
-          select: { status: true, customTitle: true, customType: true, sheet: { select: { id: true, title: true } } },
+          select: {
+            status: true, customTitle: true, customType: true,
+            sheet: { select: { id: true, title: true, subject: true, topic: true } },
+            studentResponses: { orderBy: { createdAt: 'desc' }, take: 1, select: { score: true } },
+          },
         },
       },
     });
     if (!sessions.length) return res.status(404).json({ error: 'No lessons on that day' });
     const tz = process.env.APP_TIMEZONE || 'Europe/London';
-    const labels = { ixl_maths: 'IXL Maths', ixl_english: 'IXL English', paper: 'Paper activity', other: 'Task' };
-    const groups = sessions.map(s => ({
-      heading: s.lessonPlan.student.name,
-      subheading: `${new Date(s.scheduledAt).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: tz })} · ${s.lessonPlan.title} · Tutor: ${s.lessonPlan.tutor.name}`,
-      items: s.items.map(i => ({
-        sheetId: i.sheet?.id || null,
-        title: i.sheet ? i.sheet.title : i.customTitle,
-        kind: i.sheet ? null : (labels[i.customType] || 'Task'),
-        done: i.status === 'completed',
-      })),
+    const groups = sessions.map(s => packGroup({
+      student: s.lessonPlan.student, tutorName: s.lessonPlan.tutor.name, date: s.scheduledAt, items: s.items,
     }));
     await sendOriginalsPack(res, groups, `print-run-${date}`);
   } catch (err) { next(err); }
