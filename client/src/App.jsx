@@ -13,6 +13,17 @@ import TutorDashboard from './components/tutor/TutorDashboard'
 import TutorStudentDetail from './components/tutor/StudentDetail'
 import LiveSessionView from './components/shared/LiveSessionView'
 import MarketingHome from './components/marketing/MarketingHome'
+import PrintSheet from './components/print/PrintSheet'
+import PrintPlan from './components/print/PrintPlan'
+import { useAuth } from './context/AuthContext'
+
+// Unknown URLs: signed-in users go to their own dashboard, others to the homepage
+function FallbackRedirect() {
+  const { user, loading } = useAuth()
+  if (loading) return null
+  const home = user?.role === 'manager' ? '/manager' : user?.role === 'tutor' ? '/tutor' : user?.role === 'student' ? '/student' : '/'
+  return <Navigate to={home} replace />
+}
 
 export default function App() {
   return (
@@ -72,9 +83,17 @@ export default function App() {
             <ProtectedRoute role="tutor"><LiveSessionView /></ProtectedRoute>
           } />
 
+          {/* Printable views (staff only; open in a new tab) */}
+          <Route path="/print/sheet/:sheetId" element={
+            <ProtectedRoute roles={['manager', 'tutor']}><PrintSheet /></ProtectedRoute>
+          } />
+          <Route path="/print/plan/:planId" element={
+            <ProtectedRoute roles={['manager', 'tutor']}><PrintPlan /></ProtectedRoute>
+          } />
+
           {/* Public marketing site */}
           <Route path="/" element={<MarketingHome />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<FallbackRedirect />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

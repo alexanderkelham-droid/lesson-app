@@ -4,6 +4,12 @@ const bcrypt = require('bcryptjs');
 const prisma = new PrismaClient();
 
 async function main() {
+  // Demo data uses a shared weak password — never run it against a real database.
+  if (process.env.ALLOW_DEMO_SEED !== 'yes') {
+    console.error('Refusing to seed: this creates demo accounts with password "password123".\n' +
+      'Only run against a local/throwaway database:  ALLOW_DEMO_SEED=yes npm run db:seed');
+    process.exit(1);
+  }
   console.log('Seeding database...');
 
   // ─── Users ────────────────────────────────────────────────────────────────

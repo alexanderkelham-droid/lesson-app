@@ -2,47 +2,113 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Redwood design system
+ * - One accent (redwood), one supporting colour (forest, for progress/success),
+ *   warm stone neutrals (tailwind `gray` is remapped to stone), cream surfaces.
+ * - Muted status colours only. No gradients, no emojis — use lucide-react icons.
+ * - Headings in Fraunces (serif), everything else Inter.
+ */
 @layer base {
   body {
-    @apply bg-gray-50 text-gray-900 antialiased;
+    @apply bg-canvas text-gray-900 antialiased;
+  }
+  :focus-visible {
+    @apply outline-none ring-2 ring-redwood-500/40 ring-offset-1;
   }
 }
 
 @layer components {
+  /* Buttons */
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+  }
   .btn-primary {
-    @apply bg-brand-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors;
+    @apply btn bg-redwood-600 text-white hover:bg-redwood-700 shadow-card;
   }
   .btn-secondary {
-    @apply bg-white text-gray-700 px-4 py-2 rounded-lg font-medium border border-gray-300 hover:bg-gray-50 disabled:opacity-50 transition-colors;
+    @apply btn bg-white text-gray-800 border border-gray-300 hover:bg-gray-50 hover:border-gray-400;
+  }
+  .btn-ghost {
+    @apply btn text-gray-600 hover:bg-gray-100 hover:text-gray-900 px-2.5;
   }
   .btn-danger {
-    @apply bg-red-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-red-700 disabled:opacity-50 transition-colors;
+    @apply btn bg-white text-red-700 border border-red-200 hover:bg-red-50;
   }
+  .btn-sm {
+    @apply px-3 py-1.5 text-xs;
+  }
+
+  /* Surfaces */
   .card {
-    @apply bg-white rounded-xl shadow-sm border border-gray-200 p-6;
+    @apply bg-white rounded-xl border border-gray-200 shadow-card p-6;
   }
+  .card-muted {
+    @apply bg-cream/60 rounded-xl border border-gray-200 p-5;
+  }
+  .modal-panel {
+    @apply bg-white rounded-2xl shadow-pop border border-gray-200;
+  }
+
+  /* Forms */
   .input {
-    @apply w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent;
+    @apply w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-redwood-500/30 focus:border-redwood-500 disabled:bg-gray-50;
   }
   .label {
     @apply block text-sm font-medium text-gray-700 mb-1;
   }
-  .badge {
-    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+
+  /* Type */
+  .page-title {
+    @apply font-serif text-2xl font-semibold text-gray-900 tracking-tight;
   }
+  .section-title {
+    @apply font-serif text-lg font-semibold text-gray-900;
+  }
+  .eyebrow {
+    @apply text-[11px] font-semibold uppercase tracking-wider text-gray-500;
+  }
+  .link {
+    @apply text-redwood-700 hover:text-redwood-800 underline-offset-2 hover:underline;
+  }
+
+  /* Badges — neutral by default; status variants are muted */
+  .badge {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-gray-100 text-gray-700;
+  }
+  .badge-accent  { @apply badge bg-redwood-50 text-redwood-700; }
+  .badge-success { @apply badge bg-forest-50 text-forest-700; }
+  .badge-warning { @apply badge bg-amber-50 text-amber-800; }
+  .badge-danger  { @apply badge bg-red-50 text-red-700; }
+
+  /* Segmented tabs */
+  .tabs {
+    @apply inline-flex gap-1 p-1 bg-gray-100 rounded-lg;
+  }
+  .tab {
+    @apply px-3 py-1.5 rounded-md text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors;
+  }
+  .tab-active {
+    @apply bg-white text-gray-900 shadow-card;
+  }
+
+  /* Icons (lucide): consistent size + stroke */
+  .icon    { @apply w-4 h-4 flex-shrink-0; }
+  .icon-sm { @apply w-3.5 h-3.5 flex-shrink-0; }
+  .icon-lg { @apply w-5 h-5 flex-shrink-0; }
 }
 
 /* FullCalendar overrides */
 .fc {
-  --fc-border-color: #e5e7eb;
-  --fc-today-bg-color: #f0f5ff;
+  --fc-border-color: #e7e5e4;
+  --fc-today-bg-color: #fbf6ee;
   --fc-page-bg-color: transparent;
   font-family: inherit;
 }
 .fc .fc-toolbar-title {
   font-size: 1.15rem !important;
   font-weight: 700;
-  color: #111827;
+  color: #1c1917;
 }
 .fc .fc-button {
   font-size: 0.8rem !important;
@@ -53,17 +119,17 @@
   box-shadow: none !important;
 }
 .fc .fc-button-primary {
-  background-color: #f3f4f6 !important;
-  border-color: #d1d5db !important;
-  color: #374151 !important;
+  background-color: #f5f5f4 !important;
+  border-color: #d6d3d1 !important;
+  color: #44403c !important;
 }
 .fc .fc-button-primary:hover {
-  background-color: #e5e7eb !important;
+  background-color: #e7e5e4 !important;
 }
 .fc .fc-button-primary.fc-button-active,
 .fc .fc-button-primary:active {
-  background-color: #4f46e5 !important;
-  border-color: #4f46e5 !important;
+  background-color: #a8341a !important;
+  border-color: #a8341a !important;
   color: white !important;
 }
 .fc .fc-col-header-cell {
@@ -71,17 +137,17 @@
   font-weight: 600;
   font-size: 0.75rem;
   text-transform: uppercase;
-  color: #6b7280;
-  background-color: #f9fafb;
+  color: #78716c;
+  background-color: #fafaf9;
 }
 .fc .fc-daygrid-day-number {
   font-size: 0.8rem;
   font-weight: 500;
-  color: #6b7280;
+  color: #78716c;
   padding: 0.35rem 0.5rem;
 }
 .fc .fc-daygrid-day.fc-day-today .fc-daygrid-day-number {
-  background-color: #4f46e5;
+  background-color: #a8341a;
   color: white;
   border-radius: 9999px;
   width: 1.6rem;
@@ -101,15 +167,15 @@
 .fc .fc-daygrid-more-link {
   font-size: 0.7rem;
   font-weight: 600;
-  color: #4f46e5;
+  color: #a8341a;
 }
 .fc .fc-popover {
   border-radius: 0.75rem;
   box-shadow: 0 10px 25px rgba(0,0,0,0.1);
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e7e5e4;
 }
 .fc .fc-popover-header {
-  background-color: #f9fafb;
+  background-color: #fafaf9;
   border-radius: 0.75rem 0.75rem 0 0;
   font-size: 0.8rem;
   font-weight: 600;

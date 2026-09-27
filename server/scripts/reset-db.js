@@ -116,29 +116,29 @@ async function main() {
 
   // Delete in correct order to respect FK constraints
   await prisma.followUpLog.deleteMany({});
-  console.log('  ✓ Cleared follow-up logs');
+  console.log('  ok Cleared follow-up logs');
 
   await prisma.studentResponse.deleteMany({});
-  console.log('  ✓ Cleared student responses');
+  console.log('  ok Cleared student responses');
 
   await prisma.lessonSession.deleteMany({});
-  console.log('  ✓ Cleared lesson sessions');
+  console.log('  ok Cleared lesson sessions');
 
   await prisma.lessonPlanItem.deleteMany({});
-  console.log('  ✓ Cleared lesson plan items');
+  console.log('  ok Cleared lesson plan items');
 
   await prisma.lessonPlan.deleteMany({});
-  console.log('  ✓ Cleared lesson plans');
+  console.log('  ok Cleared lesson plans');
 
   await prisma.studentLessonDay.deleteMany({});
-  console.log('  ✓ Cleared student lesson days');
+  console.log('  ok Cleared student lesson days');
 
   await prisma.followUpRule.deleteMany({});
-  console.log('  ✓ Cleared follow-up rules');
+  console.log('  ok Cleared follow-up rules');
 
   if (!opts.keepUsers) {
     await prisma.user.deleteMany({});
-    console.log('  ✓ Cleared all users');
+    console.log('  ok Cleared all users');
   } else {
     console.log('  ↷ Kept existing users (--keep-current-users)');
   }
@@ -156,7 +156,7 @@ async function main() {
   });
 
   console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('  ✓ Database reset complete');
+  console.log('  ok Database reset complete');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log(`  Manager account created:`);
   console.log(`    Email:    ${manager.email}`);

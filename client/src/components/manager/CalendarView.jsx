@@ -1,12 +1,22 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import FullCalendar from '@fullcalendar/react'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
 import interactionPlugin from '@fullcalendar/interaction'
+import enGbLocale from '@fullcalendar/core/locales/en-gb'
+import { CalendarClock, CalendarX, Check, Move, Plus, Trash2, Users, X } from 'lucide-react'
 import api from '../../lib/api'
+import { useAuth } from '../../context/AuthContext'
+import { localDateKey } from '../../lib/dates'
+import { rescheduleSession } from '../../lib/sessions'
+import { useConfirm } from '../shared/ConfirmModal'
+import CancelLessonModal from '../shared/CancelLessonModal'
+import GroupDetailPanel from '../shared/GroupDetailPanel'
+import GroupSessionModal from '../shared/GroupSessionModal'
+import { useApplyTo } from '../shared/ApplyToDialog'
 
-// Map our DB dayOfWeek (0=Mon…6=Sun) to JS day indices (0=Sun,1=Mon…6=Sat)
+// Map our DB dayOfWeek (0=Mon..6=Sun) to JS day indices (0=Sun,1=Mon..6=Sat)
 function dbDayToJsDay(dbDay) {
   return dbDay === 6 ? 0 : dbDay + 1
 }
@@ -15,49 +25,134 @@ function getDatesForDay(jsDayOfWeek, start, end) {
   const dates = []
   const d = new Date(start)
   while (d.getDay() !== jsDayOfWeek) d.setDate(d.getDate() + 1)
-  while (d <= end) {
+  while (d < end) {
     dates.push(new Date(d))
     d.setDate(d.getDate() + 7)
   }
   return dates
 }
 
+// Palette-only event colours (redwood / cream / stone; forest + amber for status)
 const SUBJECT_COLORS = {
-  maths:   { bg: '#dbeafe', border: '#3b82f6', text: '#1e40af' },
-  english: { bg: '#fce7f3', border: '#ec4899', text: '#9d174d' },
-  both:    { bg: '#e0e7ff', border: '#6366f1', text: '#3730a3' },
-  default: { bg: '#f3f4f6', border: '#9ca3af', text: '#374151' }
+  maths:   { bg: '#fdf2f0', border: '#c44424', text: '#7e2614' }, // redwood
+  english: { bg: '#f7f0e3', border: '#78716c', text: '#44403c' }, // cream / stone
+  both:    { bg: '#ffffff', border: '#a8341a', text: '#7e2614' }, // white, redwood edge
+  default: { bg: '#f5f5f4', border: '#a8a29e', text: '#44403c' }  // stone
 }
 
-export default function CalendarView({ students, plans }) {
+const STATUS_COLORS = {
+  attended: { bg: '#eaf5ee', border: '#266839', text: '#1e522d' }, // forest
+  past:     { bg: '#fffbeb', border: '#d97706', text: '#92400e' }, // amber
+}
+
+const REGULAR_SWATCH = { bg: '#fafaf9', border: '#e7e5e4' }
+
+// Group sessions (classes): cream with a forest edge, one event per class
+const GROUP_COLORS = { bg: '#f7f0e3', border: '#266839', text: '#173f23' }
+
+// Component-scoped FullCalendar styling (serif title, tidy regular-slot rows)
+const CALENDAR_CSS = `
+.redwood-calendar .fc .fc-toolbar-title {
+  font-family: Fraunces, Georgia, serif;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.redwood-calendar .fc .fc-daygrid-event.fc-regular-slot {
+  background: #fafaf9;
+  border: 1px dashed #d6d3d1 !important;
+  color: #78716c;
+  margin-top: 2px;
+}
+.redwood-calendar .fc .fc-daygrid-event.fc-regular-slot:hover {
+  background: #f5f5f4;
+}
+.redwood-calendar .fc .fc-event.fc-group-event {
+  border-left-width: 3px !important;
+}
+.redwood-calendar .fc .fc-daygrid-day-top {
+  position: relative;
+  z-index: 3;
+}
+`
+
+const fmtWhen = d => new Date(d).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+
+export default function CalendarView({ students, plans, refreshKey = 0 }) {
   const navigate = useNavigate()
+  const { user } = useAuth()
+  const basePath = user?.role === 'tutor' ? '/tutor' : '/manager'
   const [selectedEvent, setSelectedEvent] = useState(null)
   const [sessions, setSessions] = useState([])
+  const [range, setRange] = useState(null)        // { start, end, viewType }
   const [editSession, setEditSession] = useState(null) // { id, scheduledAt, durationMins, notes }
   const [savingEdit, setSavingEdit] = useState(false)
+  const [cancelling, setCancelling] = useState(null)
+  const [message, setMessage] = useState(null)     // { kind: 'error' | 'ok', text }
+  const [groups, setGroups] = useState([])
+  const [openGroupId, setOpenGroupId] = useState(null)
+  const [createAt, setCreateAt] = useState(null)   // { date, time? } for the new-group dialog
+  const [confirm, confirmModal] = useConfirm()
+  const [askApplyTo, applyToDialog] = useApplyTo()
+  const lastRangeKey = useRef('')
 
-  // Fetch sessions spanning the calendar's visible range (3 months)
-  async function loadSessions() {
-    try {
-      const today = new Date()
-      const from = new Date(today.getFullYear(), today.getMonth() - 1, 1)
-      const to = new Date(today.getFullYear(), today.getMonth() + 2, 0)
-      const res = await api.get(`/sessions?from=${from.toISOString()}&to=${to.toISOString()}`)
-      setSessions(res.data)
-    } catch (e) { /* ignore */ }
+  // Fetch sessions + group sessions for the visible range
+  const loadSessions = useCallback(async (r = range) => {
+    if (!r) return
+    const q = `from=${r.start.toISOString()}&to=${r.end.toISOString()}`
+    const [sRes, gRes] = await Promise.allSettled([api.get(`/sessions?${q}`), api.get(`/groups?${q}`)])
+    if (sRes.status === 'fulfilled') setSessions(sRes.value.data)
+    if (gRes.status === 'fulfilled') setGroups(gRes.value.data)
+  }, [range])
+
+  useEffect(() => { loadSessions() }, [loadSessions, refreshKey])
+
+  function handleDatesSet(info) {
+    const key = `${info.start.toISOString()}|${info.end.toISOString()}|${info.view.type}`
+    if (key === lastRangeKey.current) return
+    lastRangeKey.current = key
+    setRange({ start: info.start, end: info.end, viewType: info.view.type })
   }
 
-  useEffect(() => { loadSessions() }, [])
+  // Escape closes the popover / edit dialog (the confirm & cancel dialogs handle their own)
+  useEffect(() => {
+    if (!selectedEvent && !editSession) return
+    const onKey = e => {
+      if (e.key !== 'Escape' || cancelling) return
+      if (editSession && !savingEdit) setEditSession(null)
+      else if (selectedEvent) setSelectedEvent(null)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [selectedEvent, editSession, savingEdit, cancelling])
 
-  // Build events: real sessions (foreground) + recurring lesson-day placeholders (background)
+  const isMonth = !range || range.viewType === 'dayGridMonth'
+
+  // Events: real sessions, plus (month view only) one muted "Regular: …" row
+  // per day for students whose regular lesson day has no session yet
   const events = useMemo(() => {
     const evts = []
-    const today = new Date()
-    const rangeStart = new Date(today.getFullYear(), today.getMonth() - 1, 1)
-    const rangeEnd = new Date(today.getFullYear(), today.getMonth() + 2, 0)
 
-    // Active sessions — primary events, draggable
+    groups.forEach(g => {
+      const start = new Date(g.scheduledAt)
+      const count = g.members?.length || 0
+      const allAttended = count > 0 && g.members.every(m => m.attendedAt)
+      evts.push({
+        id: `group-${g.id}`,
+        title: `${g.title} · ${count}`,
+        start,
+        end: new Date(start.getTime() + (g.durationMins || 60) * 60000),
+        classNames: ['fc-group-event'],
+        backgroundColor: allAttended ? STATUS_COLORS.attended.bg : GROUP_COLORS.bg,
+        borderColor: GROUP_COLORS.border,
+        textColor: GROUP_COLORS.text,
+        editable: !allAttended,
+        durationEditable: false,
+        extendedProps: { kind: 'group', order: 0, groupId: g.id, seriesId: g.seriesId, title: g.title, count },
+      })
+    })
+
     sessions.forEach(s => {
+      if (s.groupSessionId) return // shown as part of its group
       const student = s.lessonPlan?.student
       const colors = SUBJECT_COLORS[student?.subjectFocus] || SUBJECT_COLORS.default
       const attended = !!s.attendedAt
@@ -67,13 +162,14 @@ export default function CalendarView({ students, plans }) {
         id: `session-${s.id}`,
         title: student?.name || 'Lesson',
         start: s.scheduledAt,
-        backgroundColor: attended ? '#dcfce7' : past ? '#fef3c7' : colors.bg,
-        borderColor:     attended ? '#16a34a' : past ? '#d97706' : colors.border,
-        textColor:       attended ? '#166534' : past ? '#92400e' : colors.text,
-        editable: true,
+        backgroundColor: attended ? STATUS_COLORS.attended.bg : past ? STATUS_COLORS.past.bg : colors.bg,
+        borderColor:     attended ? STATUS_COLORS.attended.border : past ? STATUS_COLORS.past.border : colors.border,
+        textColor:       attended ? STATUS_COLORS.attended.text : past ? STATUS_COLORS.past.text : colors.text,
+        editable: !attended,
         durationEditable: false,
         extendedProps: {
           kind: 'session',
+          order: 0,
           sessionId: s.id,
           studentId: student?.id,
           studentName: student?.name,
@@ -82,69 +178,153 @@ export default function CalendarView({ students, plans }) {
           planId: s.lessonPlan?.id,
           subjectFocus: student?.subjectFocus,
           attended,
+          past,
           notes: s.notes,
           durationMins: s.durationMins,
         }
       })
     })
 
-    // Recurring lesson-day slots — background events showing the regular schedule
-    // (skip days that already have a real session)
+    if (!isMonth || !range) return evts
+
     const sessionDates = new Set(
-      sessions.map(s => new Date(s.scheduledAt).toISOString().split('T')[0] + '-' + s.lessonPlan?.studentId)
+      sessions.map(s => localDateKey(new Date(s.scheduledAt)) + '-' + s.lessonPlan?.studentId)
     )
+    const todayKey = localDateKey(new Date())
+    const byDay = {} // dateKey -> [{ student, dbDay, plan }]
     students.forEach(student => {
       const days = student.lessonDays || []
       days.forEach(dbDay => {
         const jsDay = dbDayToJsDay(dbDay)
-        const dates = getDatesForDay(jsDay, rangeStart, rangeEnd)
-        dates.forEach(date => {
-          const key = date.toISOString().split('T')[0] + '-' + student.id
-          if (sessionDates.has(key)) return // session already exists this day for this student
-          const dayPlans = plans.filter(p => p.studentId === student.id && p.lessonDayOfWeek === dbDay && p.status === 'active')
-          evts.push({
-            id: `placeholder-${student.id}-${date.toISOString()}`,
-            title: student.name,
-            start: date.toISOString().split('T')[0],
-            display: 'background',
-            backgroundColor: dayPlans.length > 0 ? '#f3e8ff' : '#fef9c3',
-            extendedProps: {
-              kind: 'placeholder',
-              studentId: student.id,
-              studentName: student.name,
-              subjectFocus: student.subjectFocus,
-              dayOfWeek: dbDay,
-              planId: dayPlans[0]?.id || null,
-              planTitle: dayPlans[0]?.title || null,
-              hasPlan: dayPlans.length > 0
-            }
-          })
+        getDatesForDay(jsDay, range.start, range.end).forEach(date => {
+          if (localDateKey(date) < todayKey) return // only upcoming days need a session
+          const key = localDateKey(date)
+          if (sessionDates.has(key + '-' + student.id)) return
+          const plan = plans.find(p => p.studentId === student.id && p.lessonDayOfWeek === dbDay && p.status === 'active')
+          ;(byDay[key] ||= []).push({ student, dbDay, plan })
         })
+      })
+    })
+    Object.entries(byDay).forEach(([key, slots]) => {
+      slots.sort((a, b) => a.student.name.localeCompare(b.student.name))
+      const names = slots.map(x => x.student.name.split(' ')[0])
+      evts.push({
+        id: `regular-${key}`,
+        title: `Regular: ${names.join(', ')}`,
+        start: key,
+        allDay: true,
+        editable: false,
+        classNames: ['fc-regular-slot'],
+        backgroundColor: REGULAR_SWATCH.bg,
+        borderColor: REGULAR_SWATCH.border,
+        textColor: '#78716c',
+        extendedProps: { kind: 'regular', order: 1, slots, date: key }
       })
     })
 
     return evts
-  }, [students, plans, sessions])
+  }, [students, plans, sessions, groups, isMonth, range])
+
+  // Week/day views show 07:00-22:00, widened only if a lesson falls outside
+  const { slotMin, slotMax } = useMemo(() => {
+    let min = 7, max = 22
+    ;[...sessions, ...groups].forEach(x => {
+      const d = new Date(x.scheduledAt)
+      const start = d.getHours()
+      const end = Math.ceil(start + d.getMinutes() / 60 + (x.durationMins || 60) / 60)
+      min = Math.min(min, start)
+      max = Math.max(max, Math.min(24, end))
+    })
+    const pad = n => `${String(n).padStart(2, '0')}:00:00`
+    return { slotMin: pad(min), slotMax: pad(max) }
+  }, [sessions, groups])
+
+  function renderEventContent(arg) {
+    const p = arg.event.extendedProps
+    if (p.kind === 'regular') {
+      return (
+        <div className="px-1 text-[11px] leading-4 truncate" title={arg.event.title}>
+          {arg.event.title}
+        </div>
+      )
+    }
+    if (p.kind === 'group') {
+      return (
+        <div className="flex items-center gap-1 px-1 min-w-0 overflow-hidden text-xs leading-5" title={`Group session: ${p.title}, ${p.count} student${p.count === 1 ? '' : 's'}`}>
+          <Users className="w-3 h-3 flex-shrink-0" aria-hidden />
+          {arg.timeText && <span className="font-semibold tabular-nums flex-shrink-0">{arg.timeText}</span>}
+          <span className="truncate font-medium">{arg.event.title}</span>
+        </div>
+      )
+    }
+    return (
+      <div className="flex gap-1 px-1 min-w-0 overflow-hidden text-xs leading-5">
+        {arg.timeText && <span className="font-semibold tabular-nums flex-shrink-0">{arg.timeText}</span>}
+        <span className="truncate">{arg.event.title}</span>
+      </div>
+    )
+  }
 
   function handleEventClick(info) {
-    setSelectedEvent({ ...info.event.extendedProps, date: info.event.startStr })
+    const p = info.event.extendedProps
+    if (p.kind === 'group') { setOpenGroupId(p.groupId); return }
+    setSelectedEvent({ ...p, date: p.kind === 'regular' ? p.date : info.event.startStr })
   }
 
   async function handleEventDrop(info) {
     const props = info.event.extendedProps
+    if (props.kind === 'group') {
+      await moveGroup(info, props)
+      return
+    }
     if (props.kind !== 'session') {
       info.revert()
       return
     }
+    setMessage(null)
     try {
-      await api.put(`/sessions/${props.sessionId}`, {
-        scheduledAt: info.event.start.toISOString()
-      })
+      const res = await rescheduleSession(props.sessionId, info.event.start.toISOString(), {}, confirm)
+      if (!res) { info.revert(); return }
+      if (res.merged) setMessage({ kind: 'ok', text: `${props.studentName}'s lessons were merged into ${fmtWhen(res.scheduledAt)}.` })
       await loadSessions()
     } catch (e) {
-      alert(e.response?.data?.error || 'Failed to reschedule')
       info.revert()
+      setMessage({ kind: 'error', text: e.response?.data?.error || 'Failed to reschedule' })
     }
+  }
+
+  // Drag a class: every student's lesson (and their planned work) moves with it
+  async function moveGroup(info, props) {
+    setMessage(null)
+    let applyTo = 'this'
+    if (props.seriesId) {
+      applyTo = await askApplyTo({
+        title: 'Move group session',
+        message: `Move ${props.title} to ${fmtWhen(info.event.start)}?`,
+        confirmLabel: 'Move',
+      })
+      if (!applyTo) { info.revert(); return }
+    }
+    try {
+      const res = await api.put(`/groups/${props.groupId}`, { scheduledAt: info.event.start.toISOString(), applyTo })
+      setMessage({ kind: 'ok', text: res.data?.updated > 1
+        ? `${props.title} moved, with ${res.data.updated - 1} following session${res.data.updated === 2 ? '' : 's'}.`
+        : `${props.title} moved to ${fmtWhen(info.event.start)}.` })
+      await loadSessions()
+    } catch (e) {
+      info.revert()
+      setMessage({ kind: 'error', text: e.response?.data?.error || 'Failed to move the group session' })
+    }
+  }
+
+  // Clicking an empty day (month) or slot (week/day) starts a new group session there
+  function handleDateClick(info) {
+    const pad = n => String(n).padStart(2, '0')
+    const d = info.date
+    setCreateAt({
+      date: localDateKey(d),
+      time: info.allDay ? undefined : `${pad(d.getHours())}:${pad(d.getMinutes())}`,
+    })
   }
 
   function openEditFromSelected() {
@@ -155,6 +335,7 @@ export default function CalendarView({ students, plans }) {
     const pad = n => String(n).padStart(2, '0')
     setEditSession({
       id: s.id,
+      studentName: selectedEvent.studentName,
       scheduledAt: `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`,
       durationMins: s.durationMins || 60,
       notes: s.notes || ''
@@ -165,67 +346,108 @@ export default function CalendarView({ students, plans }) {
   async function saveEdit() {
     if (!editSession) return
     setSavingEdit(true)
+    setMessage(null)
     try {
-      await api.put(`/sessions/${editSession.id}`, {
-        scheduledAt: new Date(editSession.scheduledAt).toISOString(),
+      const res = await rescheduleSession(editSession.id, new Date(editSession.scheduledAt).toISOString(), {
         durationMins: editSession.durationMins ? parseInt(editSession.durationMins) : null,
         notes: editSession.notes || null
-      })
+      }, confirm)
+      if (!res) return // kept as it was: leave the dialog open
+      if (res.merged) setMessage({ kind: 'ok', text: `${editSession.studentName}'s lessons were merged into ${fmtWhen(res.scheduledAt)}.` })
       setEditSession(null)
       await loadSessions()
     } catch (e) {
-      alert(e.response?.data?.error || 'Failed to save')
+      setMessage({ kind: 'error', text: e.response?.data?.error || 'Failed to save' })
+      setEditSession(null)
     } finally {
       setSavingEdit(false)
     }
   }
 
   async function deleteSession(id) {
-    if (!confirm('Delete this session?')) return
+    const ok = await confirm({
+      title: 'Delete this session?',
+      message: 'Any planned work in it goes back to unscheduled.',
+      confirmLabel: 'Delete session',
+      destructive: true,
+    })
+    if (!ok) return
     try {
       await api.delete(`/sessions/${id}`)
       setSelectedEvent(null)
       setEditSession(null)
       await loadSessions()
     } catch (e) {
-      alert(e.response?.data?.error || 'Failed to delete')
+      setMessage({ kind: 'error', text: e.response?.data?.error || 'Failed to delete' })
     }
   }
 
+  function startCancel() {
+    const s = sessions.find(x => x.id === selectedEvent?.sessionId)
+    if (!s) return
+    setCancelling(s)
+    setSelectedEvent(null)
+  }
+
   return (
-    <div className="relative">
-      {/* Legend */}
-      <div className="flex flex-wrap gap-3 mb-4 text-xs">
-        <div className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-sm border" style={{ backgroundColor: '#dbeafe', borderColor: '#3b82f6' }} />
-          <span className="text-gray-600">Maths session</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-sm border" style={{ backgroundColor: '#fce7f3', borderColor: '#ec4899' }} />
-          <span className="text-gray-600">English session</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-sm border" style={{ backgroundColor: '#dcfce7', borderColor: '#16a34a' }} />
-          <span className="text-gray-600">Attended</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-sm border" style={{ backgroundColor: '#fef3c7', borderColor: '#d97706' }} />
-          <span className="text-gray-600">Past — no record</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: '#f3e8ff' }} />
-          <span className="text-gray-600">Regular slot (no session)</span>
-        </div>
-        <span className="text-gray-400 italic">Drag a session to reschedule</span>
+    <div className="relative redwood-calendar">
+      <style>{CALENDAR_CSS}</style>
+
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <p className="text-xs text-gray-500">Click an empty day to add a group session there.</p>
+        <button onClick={() => setCreateAt({ date: localDateKey() })} className="btn-secondary btn-sm">
+          <Users className="icon-sm" aria-hidden /> New group session
+        </button>
       </div>
+
+      {/* Legend */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-4 text-xs">
+        {[
+          { label: 'Group session', swatch: GROUP_COLORS, thick: true },
+          { label: 'Maths session', swatch: SUBJECT_COLORS.maths },
+          { label: 'English session', swatch: SUBJECT_COLORS.english },
+          { label: 'Attended', swatch: STATUS_COLORS.attended },
+          { label: 'Past, no record', swatch: STATUS_COLORS.past },
+          { label: 'Regular day, no session yet (month view)', swatch: REGULAR_SWATCH, dashed: true },
+        ].map(l => (
+          <div key={l.label} className="flex items-center gap-1.5">
+            <span className={`w-3 h-3 rounded-sm border ${l.dashed ? 'border-dashed' : ''} ${l.thick ? 'border-l-[3px]' : ''}`} style={{ backgroundColor: l.swatch.bg, borderColor: l.dashed ? '#a8a29e' : l.swatch.border }} aria-hidden />
+            <span className="text-gray-600">{l.label}</span>
+          </div>
+        ))}
+        <span className="inline-flex items-center gap-1 text-gray-500 sm:ml-auto">
+          <Move className="icon-sm" aria-hidden /> Drag a session or group to reschedule
+        </span>
+      </div>
+
+      {message && (
+        <p
+          role={message.kind === 'error' ? 'alert' : 'status'}
+          className={`text-sm rounded-lg px-3 py-2 mb-3 border ${message.kind === 'error' ? 'text-red-700 bg-red-50 border-red-100' : 'text-forest-700 bg-forest-50 border-forest-100'}`}
+        >
+          {message.text}
+        </p>
+      )}
 
       <div className="card p-2 sm:p-4">
         <FullCalendar
           plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+          locale={enGbLocale}
           initialView="dayGridMonth"
+          eventTimeFormat={{ hour: '2-digit', minute: '2-digit', hour12: false }}
+          slotLabelFormat={{ hour: '2-digit', minute: '2-digit', hour12: false }}
+          nextDayThreshold="06:00:00"
+          scrollTime="08:00:00"
+          slotMinTime={slotMin}
+          slotMaxTime={slotMax}
+          allDaySlot={false}
           events={events}
+          eventOrder="order,start,title"
+          eventContent={renderEventContent}
           eventClick={handleEventClick}
           eventDrop={handleEventDrop}
+          dateClick={handleDateClick}
+          datesSet={handleDatesSet}
           editable={true}
           headerToolbar={{
             left: 'prev,next today',
@@ -241,161 +463,211 @@ export default function CalendarView({ students, plans }) {
 
       {/* Event detail popover */}
       {selectedEvent && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={() => setSelectedEvent(null)}>
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-5" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-gray-900 text-lg">{selectedEvent.studentName}</h3>
-              <button onClick={() => setSelectedEvent(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 p-4" onClick={() => setSelectedEvent(null)}>
+          <div role="dialog" aria-modal="true" aria-label={selectedEvent.kind === 'regular' ? 'Regular lessons' : `Session with ${selectedEvent.studentName}`} className="modal-panel w-full max-w-sm p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3 mb-4">
+              <div className="min-w-0">
+                <p className="eyebrow">{selectedEvent.kind === 'session' ? 'Session' : 'Regular lesson day'}</p>
+                <h3 className="section-title truncate">
+                  {selectedEvent.kind === 'session'
+                    ? selectedEvent.studentName
+                    : new Date(selectedEvent.date + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
+                </h3>
+              </div>
+              <button onClick={() => setSelectedEvent(null)} className="btn-ghost -mr-2 -mt-1" aria-label="Close" title="Close">
+                <X className="icon" aria-hidden />
+              </button>
             </div>
 
-            <div className="space-y-3 text-sm">
-              <div className="flex justify-between">
-                <span className="text-gray-500">Date</span>
-                <span className="font-medium text-gray-800 text-right">
-                  {new Date(selectedEvent.date).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
-                  {selectedEvent.kind === 'session' && (
-                    <span className="block text-xs text-gray-500">
-                      {new Date(selectedEvent.date).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
-                      {selectedEvent.durationMins ? ` · ${selectedEvent.durationMins} min` : ''}
-                    </span>
-                  )}
-                </span>
-              </div>
+            {selectedEvent.kind === 'regular' ? (
+              <>
+                <p className="text-sm text-gray-600 mb-3">No session has been created yet for these regular lessons.</p>
+                <ul className="divide-y divide-gray-100 border-y border-gray-100">
+                  {selectedEvent.slots.map(({ student, dbDay, plan }) => (
+                    <li key={student.id} className="py-2.5 flex items-center gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-900 truncate">{student.name}</p>
+                        <p className="text-xs text-gray-500 truncate">{plan ? plan.title : 'No active plan for this day'}</p>
+                      </div>
+                      <button onClick={() => navigate(`${basePath}/students/${student.id}`)} className="btn-ghost btn-sm" aria-label={`View ${student.name}`}>
+                        View
+                      </button>
+                      {plan ? (
+                        <button onClick={() => navigate(`${basePath}/lesson-plans/${plan.id}/builder`)} className="btn-secondary btn-sm" aria-label={`Plan ${student.name}'s lesson`}>
+                          Plan
+                        </button>
+                      ) : (
+                        <button onClick={() => navigate(`${basePath}/lesson-plans/new?studentId=${student.id}&day=${dbDay}`)} className="btn-secondary btn-sm" aria-label={`Create a plan for ${student.name}`}>
+                          <Plus className="icon-sm" aria-hidden /> Create plan
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : (
+              <>
+                <dl className="divide-y divide-gray-100 text-sm border-y border-gray-100">
+                  <div className="flex justify-between gap-4 py-2.5">
+                    <dt className="text-gray-500">Date</dt>
+                    <dd className="font-medium text-gray-900 text-right">
+                      {new Date(selectedEvent.date).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
+                      <span className="block text-xs font-normal text-gray-500">
+                        {new Date(selectedEvent.date).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                        {selectedEvent.durationMins ? ` · ${selectedEvent.durationMins} min` : ''}
+                      </span>
+                    </dd>
+                  </div>
 
-              {selectedEvent.subjectFocus && (
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Subject</span>
-                  <span className="font-medium text-gray-800 capitalize">{selectedEvent.subjectFocus}</span>
-                </div>
-              )}
-
-              {selectedEvent.kind === 'session' && (
-                <>
-                  {selectedEvent.tutorName && (
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">Tutor</span>
-                      <span className="font-medium text-gray-800">{selectedEvent.tutorName}</span>
+                  {selectedEvent.subjectFocus && (
+                    <div className="flex justify-between gap-4 py-2.5">
+                      <dt className="text-gray-500">Subject</dt>
+                      <dd className="font-medium text-gray-900 capitalize">{selectedEvent.subjectFocus}</dd>
                     </div>
                   )}
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">Status</span>
-                    {selectedEvent.attended ? (
-                      <span className="font-medium text-green-600">Attended ✓</span>
-                    ) : (
-                      <span className="font-medium text-amber-600">Scheduled</span>
-                    )}
+                  {selectedEvent.tutorName && (
+                    <div className="flex justify-between gap-4 py-2.5">
+                      <dt className="text-gray-500">Tutor</dt>
+                      <dd className="font-medium text-gray-900">{selectedEvent.tutorName}</dd>
+                    </div>
+                  )}
+                  <div className="flex justify-between items-center gap-4 py-2.5">
+                    <dt className="text-gray-500">Status</dt>
+                    <dd>
+                      {selectedEvent.attended ? (
+                        <span className="badge-success"><Check className="icon-sm" aria-hidden /> Attended</span>
+                      ) : selectedEvent.past ? (
+                        <span className="badge-warning">No record</span>
+                      ) : (
+                        <span className="badge">Scheduled</span>
+                      )}
+                    </dd>
                   </div>
                   {selectedEvent.notes && (
-                    <div>
-                      <p className="text-gray-500 text-xs mb-1">Notes</p>
-                      <p className="text-xs text-gray-700 italic whitespace-pre-wrap">{selectedEvent.notes}</p>
+                    <div className="py-2.5">
+                      <dt className="text-gray-500 text-xs mb-1">Notes</dt>
+                      <dd className="text-xs text-gray-700 italic whitespace-pre-wrap">{selectedEvent.notes}</dd>
                     </div>
                   )}
-                </>
-              )}
+                  <div className="flex justify-between gap-4 py-2.5">
+                    <dt className="text-gray-500">Lesson plan</dt>
+                    <dd className="font-medium text-gray-900 text-right">{selectedEvent.planTitle}</dd>
+                  </div>
+                </dl>
 
-              <div className="flex justify-between">
-                <span className="text-gray-500">Lesson Plan</span>
-                {selectedEvent.planTitle ? (
-                  <span className="font-medium text-green-600">{selectedEvent.planTitle}</span>
-                ) : (
-                  <span className="font-medium text-yellow-600">Not assigned</span>
-                )}
-              </div>
-            </div>
-
-            <div className="flex gap-2 mt-5 flex-wrap">
-              {selectedEvent.kind === 'session' ? (
-                <>
-                  <button onClick={openEditFromSelected} className="btn-primary flex-1 text-sm">
-                    Reschedule
-                  </button>
+                <div className="flex gap-2 mt-5 flex-wrap">
+                  {!selectedEvent.attended && (
+                    <button onClick={openEditFromSelected} className="btn-primary flex-1">
+                      <CalendarClock className="icon" aria-hidden /> Reschedule
+                    </button>
+                  )}
                   <button
-                    onClick={() => navigate(`/manager/lesson-plans/${selectedEvent.planId}/live`)}
-                    className="btn-secondary flex-1 text-sm"
+                    onClick={() => navigate(`${basePath}/lesson-plans/${selectedEvent.planId}/live`)}
+                    className="btn-secondary flex-1"
                   >
                     Open
                   </button>
                   <button
                     onClick={() => deleteSession(selectedEvent.sessionId)}
-                    className="text-xs py-2 px-3 text-red-600 hover:bg-red-50 rounded-lg border border-red-200"
+                    className="btn-danger px-3"
+                    aria-label={`Delete ${selectedEvent.studentName}'s session`}
+                    title="Delete session"
                   >
-                    Delete
+                    <Trash2 className="icon" aria-hidden />
                   </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    onClick={() => navigate(`/manager/students/${selectedEvent.studentId}`)}
-                    className="btn-secondary flex-1 text-sm"
-                  >
-                    View Student
-                  </button>
-                  {selectedEvent.hasPlan ? (
-                    <button
-                      onClick={() => navigate(`/manager/lesson-plans/${selectedEvent.planId}/builder`)}
-                      className="btn-primary flex-1 text-sm"
-                    >
-                      Plan
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => navigate(`/manager/lesson-plans/new?studentId=${selectedEvent.studentId}&day=${selectedEvent.dayOfWeek}`)}
-                      className="btn-primary flex-1 text-sm"
-                    >
-                      Create Plan
+                  {!selectedEvent.attended && (
+                    <button onClick={startCancel} className="btn-secondary w-full">
+                      <CalendarX className="icon" aria-hidden /> Cancel lesson
                     </button>
                   )}
-                </>
-              )}
-            </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
 
       {/* Reschedule edit modal */}
       {editSession && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={() => setEditSession(null)}>
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-5" onClick={e => e.stopPropagation()}>
-            <h3 className="font-bold text-gray-900 text-lg mb-3">Reschedule session</h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 p-4" onClick={() => !savingEdit && setEditSession(null)}>
+          <div role="dialog" aria-modal="true" aria-label="Reschedule session" className="modal-panel w-full max-w-sm p-6" onClick={e => e.stopPropagation()}>
+            <h3 className="section-title mb-4">Reschedule session</h3>
             <div className="space-y-3">
               <div>
-                <label className="text-xs font-medium text-gray-600">Date & time</label>
+                <label className="label" htmlFor="cal-edit-when">Date and time</label>
                 <input
+                  id="cal-edit-when"
                   type="datetime-local"
                   value={editSession.scheduledAt}
                   onChange={e => setEditSession({ ...editSession, scheduledAt: e.target.value })}
-                  className="input text-sm mt-0.5"
+                  className="input"
                 />
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-600">Duration (mins)</label>
+                <label className="label" htmlFor="cal-edit-duration">Duration (mins)</label>
                 <input
+                  id="cal-edit-duration"
                   type="number"
                   value={editSession.durationMins}
                   onChange={e => setEditSession({ ...editSession, durationMins: e.target.value })}
-                  className="input text-sm mt-0.5"
+                  className="input"
                 />
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-600">Notes</label>
+                <label className="label" htmlFor="cal-edit-notes">Notes</label>
                 <textarea
+                  id="cal-edit-notes"
                   value={editSession.notes}
                   onChange={e => setEditSession({ ...editSession, notes: e.target.value })}
                   rows={2}
-                  className="input text-sm mt-0.5 resize-none"
+                  className="input resize-none"
                 />
               </div>
             </div>
-            <div className="flex gap-2 mt-4">
+            <div className="flex gap-2 mt-5">
               <button onClick={() => setEditSession(null)} className="btn-secondary flex-1" disabled={savingEdit}>Cancel</button>
               <button onClick={saveEdit} className="btn-primary flex-1" disabled={savingEdit}>
-                {savingEdit ? 'Saving...' : 'Save'}
+                {savingEdit ? 'Saving…' : 'Save changes'}
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {cancelling && (
+        <CancelLessonModal
+          session={cancelling}
+          itemCount={(cancelling.items || []).filter(i => i.status !== 'completed').length}
+          onClose={() => setCancelling(null)}
+          onDone={r => {
+            setMessage({ kind: 'ok', text: r?.moved
+              ? `Lesson cancelled. ${r.moved} item${r.moved === 1 ? '' : 's'} moved ${r.movedTo ? `to ${fmtWhen(r.movedTo.scheduledAt)}` : 'to unscheduled'}.`
+              : 'Lesson cancelled.' })
+            loadSessions()
+          }}
+        />
+      )}
+      {openGroupId && (
+        <GroupDetailPanel
+          groupId={openGroupId}
+          onClose={() => setOpenGroupId(null)}
+          onChanged={() => loadSessions()}
+        />
+      )}
+      {createAt && (
+        <GroupSessionModal
+          defaultDate={createAt.date}
+          defaultTime={createAt.time}
+          onClose={() => setCreateAt(null)}
+          onSaved={r => {
+            setCreateAt(null)
+            setMessage({ kind: 'ok', text: r?.occurrences > 1 ? `${r.title} created: ${r.occurrences} weekly sessions.` : `${r?.title || 'Group session'} created.` })
+            loadSessions()
+          }}
+        />
+      )}
+      {confirmModal}
+      {applyToDialog}
     </div>
   )
 }

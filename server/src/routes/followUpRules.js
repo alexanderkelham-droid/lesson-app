@@ -1,11 +1,13 @@
 const express = require('express');
 const prisma = require('../prisma');
 const { auth, requireRole } = require('../middleware/auth');
+const { validateIdParam } = require('../lib/access');
 
 const router = express.Router();
+router.param('id', validateIdParam);
 
 // GET /api/follow-up-rules
-router.get('/', auth, async (req, res, next) => {
+router.get('/', requireRole('manager', 'tutor'), async (req, res, next) => {
   try {
     const rules = await prisma.followUpRule.findMany({
       include: {
@@ -73,10 +75,11 @@ router.delete('/:id', requireRole('manager'), async (req, res, next) => {
 // GET /api/follow-up-rules/logs - all auto-generated follow-up logs
 router.get('/logs', auth, async (req, res, next) => {
   try {
-    const { role } = req.user;
+    const { role, userId } = req.user;
     if (!['manager', 'tutor'].includes(role)) return res.status(403).json({ error: 'Forbidden' });
 
     const logs = await prisma.followUpLog.findMany({
+      where: role === 'tutor' ? { lessonPlan: { tutorId: userId } } : {},
       include: {
         triggerRule:   { select: { id: true, triggerCondition: true } },
         sourceSheet:   { select: { id: true, title: true } },

@@ -1,73 +1,13 @@
 const express = require('express');
 const prisma = require('../prisma');
 const { auth } = require('../middleware/auth');
+const { calculateScore } = require('../lib/scoring');
+const { parseId, getPlanForAccess, tutorPlanWhere } = require('../lib/access');
 
 const router = express.Router();
 
-function calculateScore(contentJson, responsesJson) {
-  const questions = contentJson.questions || [];
-  if (questions.length === 0) return null;
-
-  let totalPoints = 0;
-  let earnedPoints = 0;
-
-  for (const q of questions) {
-    // Free-text / image-based questions can't be auto-graded. Exclude them
-    // from both numerator and denominator so the score reflects only what
-    // we can actually verify. Tutor can override with manualScore.
-    if (q.type === 'free_text' || q.type === 'image_based') continue;
-
-    // Auto-gradeable questions need a `correct` value to be counted. If
-    // the sheet was migrated without one, exclude it from scoring so it
-    // doesn't unfairly drag scores down to 0.
-    const correctRaw = q.type === 'ordering' ? q.correct_order : q.correct;
-    const hasCorrect = Array.isArray(correctRaw)
-      ? correctRaw.length > 0
-      : !!correctRaw;
-    if (!hasCorrect) continue;
-
-    const points = q.points || 1;
-    totalPoints += points;
-    const answer = responsesJson[q.id];
-    if (answer === undefined || answer === null) continue;
-
-    switch (q.type) {
-      case 'multiple_choice': {
-        const correct = Array.isArray(q.correct) ? q.correct : [q.correct];
-        const given = Array.isArray(answer) ? answer : [answer];
-        const isCorrect = correct.length === given.length && correct.every(c => given.includes(c));
-        if (isCorrect) earnedPoints += points;
-        break;
-      }
-      case 'fill_in_blank': {
-        const correct = Array.isArray(q.correct) ? q.correct : [q.correct];
-        const normalise = s => String(s).trim().toLowerCase();
-        if (correct.some(c => normalise(c) === normalise(answer))) earnedPoints += points;
-        break;
-      }
-      case 'matching': {
-        const pairs = q.pairs || [];
-        const allCorrect = pairs.every(p => answer[p.left] === p.right);
-        if (allCorrect) earnedPoints += points;
-        break;
-      }
-      case 'ordering': {
-        const correct = q.correct_order || [];
-        const isCorrect = Array.isArray(answer) &&
-          answer.length === correct.length &&
-          answer.every((v, i) => v === correct[i]);
-        if (isCorrect) earnedPoints += points;
-        break;
-      }
-    }
-  }
-
-  // If nothing is auto-gradeable, score is null (needs manual review).
-  if (totalPoints === 0) return null;
-  return Math.round((earnedPoints / totalPoints) * 100);
-}
-
-// GET /api/student-responses
+// GET /api/student-responses?studentId=&sheetId=&lessonPlanItemId=
+// Students see only their own; tutors only their own students'; managers all.
 router.get('/', auth, async (req, res, next) => {
   try {
     const { userId, role } = req.user;
@@ -76,17 +16,28 @@ router.get('/', auth, async (req, res, next) => {
     const where = {};
     if (role === 'student') {
       where.studentId = userId;
-    } else if (studentId) {
-      where.studentId = parseInt(studentId);
+    } else {
+      if (studentId) {
+        const sid = parseId(studentId);
+        if (!sid) return res.status(400).json({ error: 'Invalid studentId' });
+        where.studentId = sid;
+      }
+      if (role === 'tutor') where.lessonPlanItem = { lessonPlan: tutorPlanWhere(userId) };
     }
-    if (sheetId) where.sheetId = parseInt(sheetId);
-    if (lessonPlanItemId) where.lessonPlanItemId = parseInt(lessonPlanItemId);
+    if (sheetId) {
+      const id = parseId(sheetId);
+      if (!id) return res.status(400).json({ error: 'Invalid sheetId' });
+      where.sheetId = id;
+    }
+    if (lessonPlanItemId) {
+      const id = parseId(lessonPlanItemId);
+      if (!id) return res.status(400).json({ error: 'Invalid lessonPlanItemId' });
+      where.lessonPlanItemId = id;
+    }
 
     const responses = await prisma.studentResponse.findMany({
       where,
-      include: {
-        sheet: { select: { id: true, title: true, subject: true } }
-      },
+      include: { sheet: { select: { id: true, title: true, subject: true } } },
       orderBy: { createdAt: 'desc' }
     });
     res.json(responses);
@@ -94,50 +45,61 @@ router.get('/', auth, async (req, res, next) => {
 });
 
 // POST /api/student-responses
+// Student submits their own answers, or staff record a result (e.g. a paper
+// sheet done in the centre) with an optional manualScore.
 router.post('/', auth, async (req, res, next) => {
   try {
-    const { userId, role } = req.user;
-    const { sheetId, lessonPlanItemId, responsesJson, timeSpentSeconds, manualScore } = req.body;
-
-    if (!sheetId || !lessonPlanItemId || !responsesJson) {
-      return res.status(400).json({ error: 'sheetId, lessonPlanItemId, responsesJson required' });
+    const { role } = req.user;
+    const { responsesJson, timeSpentSeconds, manualScore } = req.body;
+    const lessonPlanItemId = parseId(req.body.lessonPlanItemId);
+    if (!lessonPlanItemId || !responsesJson || typeof responsesJson !== 'object') {
+      return res.status(400).json({ error: 'lessonPlanItemId and responsesJson are required' });
     }
 
-    const studentId = role === 'student' ? userId : parseInt(req.body.studentId);
+    const item = await prisma.lessonPlanItem.findUnique({
+      where: { id: lessonPlanItemId },
+      select: { id: true, lessonPlanId: true, sheetId: true, status: true, sheet: { select: { contentJson: true } } }
+    });
+    if (!item) return res.status(404).json({ error: 'Lesson plan item not found' });
+    if (!item.sheetId) return res.status(400).json({ error: 'Custom items have no sheet to answer — mark them done instead' });
 
-    // Fetch sheet for scoring
-    const sheet = await prisma.sheet.findUnique({ where: { id: parseInt(sheetId) } });
-    if (!sheet) return res.status(404).json({ error: 'Sheet not found' });
+    // Caller must be allowed to see this plan; the response is always
+    // attributed to the plan's student (never a client-supplied id).
+    const plan = await getPlanForAccess(req, item.lessonPlanId);
+    if (role === 'student' && item.status === 'locked') {
+      return res.status(403).json({ error: 'This sheet is not available yet' });
+    }
 
-    // Manual score (managers/tutors only) overrides auto-scoring
     let score;
-    if (manualScore !== undefined && manualScore !== null && manualScore !== '' && role !== 'student') {
-      const n = parseFloat(manualScore);
-      if (isNaN(n) || n < 0 || n > 100) {
+    if (role !== 'student' && manualScore !== undefined && manualScore !== null && manualScore !== '') {
+      const n = Number(manualScore);
+      if (!Number.isFinite(n) || n < 0 || n > 100) {
         return res.status(400).json({ error: 'manualScore must be between 0 and 100' });
       }
       score = n;
     } else {
-      score = calculateScore(sheet.contentJson, responsesJson);
+      score = calculateScore(item.sheet.contentJson, responsesJson);
     }
 
-    // Mark item as in_progress during save
-    await prisma.lessonPlanItem.update({
-      where: { id: parseInt(lessonPlanItemId) },
-      data: { status: 'in_progress' }
-    });
-
-    const response = await prisma.studentResponse.create({
-      data: {
-        studentId,
-        sheetId: parseInt(sheetId),
-        lessonPlanItemId: parseInt(lessonPlanItemId),
-        responsesJson,
-        score,
-        completedAt: new Date(),
-        timeSpentSeconds: timeSpentSeconds || null
-      }
-    });
+    const seconds = Number(timeSpentSeconds);
+    const [, response] = await prisma.$transaction([
+      prisma.lessonPlanItem.update({
+        where: { id: item.id },
+        // Don't downgrade an already-completed item back to in_progress
+        data: item.status === 'completed' ? {} : { status: 'in_progress' }
+      }),
+      prisma.studentResponse.create({
+        data: {
+          studentId: plan.studentId,
+          sheetId: item.sheetId,
+          lessonPlanItemId: item.id,
+          responsesJson,
+          score,
+          completedAt: new Date(),
+          timeSpentSeconds: Number.isFinite(seconds) && seconds >= 0 ? Math.round(seconds) : null
+        }
+      })
+    ]);
 
     res.status(201).json(response);
   } catch (err) { next(err); }

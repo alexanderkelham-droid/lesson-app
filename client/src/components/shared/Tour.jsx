@@ -1,4 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react'
+import { ArrowLeft, ArrowRight, Check, X } from 'lucide-react'
 
 /**
  * Tour — lightweight onboarding tooltip walkthrough.
@@ -104,60 +105,98 @@ export default function Tour({ id, steps, autoStart = false, onClose, forceOpen 
       {spotlightStyle ? (
         <>
           {/* 4 dark panels around the spotlight */}
-          <div className="absolute bg-black/60 pointer-events-auto"
+          <div className="absolute bg-gray-900/50 pointer-events-auto"
             style={{ top: 0, left: 0, right: 0, height: spotlightStyle.top }} onClick={finish} />
-          <div className="absolute bg-black/60 pointer-events-auto"
+          <div className="absolute bg-gray-900/50 pointer-events-auto"
             style={{ top: spotlightStyle.top + spotlightStyle.height, left: 0, right: 0, bottom: 0 }} onClick={finish} />
-          <div className="absolute bg-black/60 pointer-events-auto"
+          <div className="absolute bg-gray-900/50 pointer-events-auto"
             style={{ top: spotlightStyle.top, left: 0, width: spotlightStyle.left, height: spotlightStyle.height }} onClick={finish} />
-          <div className="absolute bg-black/60 pointer-events-auto"
+          <div className="absolute bg-gray-900/50 pointer-events-auto"
             style={{ top: spotlightStyle.top, left: spotlightStyle.left + spotlightStyle.width, right: 0, height: spotlightStyle.height }} onClick={finish} />
 
           {/* Spotlight ring */}
           <div
-            className="absolute rounded-lg pointer-events-none ring-4 ring-redwood-400/80 ring-offset-2 transition-all"
+            className="absolute rounded-xl pointer-events-none ring-2 ring-redwood-500 ring-offset-2 ring-offset-white transition-all"
             style={spotlightStyle}
           />
         </>
       ) : (
-        <div className="absolute inset-0 bg-black/60 pointer-events-auto" onClick={finish} />
+        <div className="absolute inset-0 bg-gray-900/50 pointer-events-auto" onClick={finish} />
       )}
 
       {/* Tooltip card */}
       <div
         ref={tooltipRef}
-        className="absolute bg-white rounded-2xl shadow-2xl border-t-4 border-redwood-600 p-5 max-w-xs pointer-events-auto"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={currentStep.title ? `tour-${id}-title` : undefined}
+        className="absolute modal-panel p-5 pointer-events-auto"
         style={tooltipStyle}
       >
+        <div className="flex items-start justify-between gap-3">
+          <p className="eyebrow">Step {stepIdx + 1} of {steps.length}</p>
+          <button
+            type="button"
+            onClick={finish}
+            className="-mt-1.5 -mr-1.5 p-1.5 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+            aria-label="Close tour"
+            title="Close tour"
+          >
+            <X className="icon" aria-hidden />
+          </button>
+        </div>
         {currentStep.title && (
-          <h3 className="font-serif font-bold text-gray-900 text-lg mb-1">{currentStep.title}</h3>
+          <h3 id={`tour-${id}-title`} className="font-serif font-semibold text-gray-900 text-lg leading-snug mt-1">
+            {currentStep.title}
+          </h3>
         )}
-        <p className="text-sm text-forest-800 leading-relaxed">{currentStep.body}</p>
+        <p className="text-sm text-gray-600 leading-relaxed mt-1.5">{currentStep.body}</p>
 
-        <div className="mt-4 flex items-center justify-between gap-2">
-          <span className="text-xs text-gray-400 font-medium">
-            {stepIdx + 1} of {steps.length}
-          </span>
+        {/* Progress dots */}
+        <div className="mt-4 flex items-center gap-1" aria-hidden="true">
+          {steps.map((_, i) => (
+            <span
+              key={i}
+              className={`h-1 rounded-full transition-all ${i === stepIdx ? 'w-5 bg-redwood-600' : i < stepIdx ? 'w-2 bg-redwood-200' : 'w-2 bg-gray-200'}`}
+            />
+          ))}
+        </div>
+
+        <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={finish}
+            className="btn-ghost btn-sm"
+          >
+            Skip tour
+          </button>
           <div className="flex items-center gap-2">
-            <button
-              onClick={finish}
-              className="text-xs text-gray-500 hover:text-gray-800 px-2 py-1"
-            >
-              Skip
-            </button>
             {stepIdx > 0 && (
               <button
+                type="button"
                 onClick={prev}
-                className="btn-secondary text-xs py-1 px-3"
+                className="btn-secondary btn-sm"
               >
+                <ArrowLeft className="icon-sm" aria-hidden />
                 Back
               </button>
             )}
             <button
+              type="button"
               onClick={next}
-              className="btn-primary text-xs py-1 px-4"
+              className="btn-primary btn-sm"
             >
-              {stepIdx === steps.length - 1 ? 'Got it' : 'Next'}
+              {stepIdx === steps.length - 1 ? (
+                <>
+                  <Check className="icon-sm" aria-hidden />
+                  Got it
+                </>
+              ) : (
+                <>
+                  Next
+                  <ArrowRight className="icon-sm" aria-hidden />
+                </>
+              )}
             </button>
           </div>
         </div>
@@ -169,7 +208,7 @@ export default function Tour({ id, steps, autoStart = false, onClose, forceOpen 
 // Decide where to put the tooltip card relative to the highlighted element
 function computeTooltipStyle(rect, placement) {
   const W = 320 // tooltip max width
-  const H = 200 // estimate
+  const H = 240 // estimate
   const margin = 12
 
   if (!rect || placement === 'center') {

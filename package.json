@@ -7,11 +7,13 @@
     "dev:server": "npm run dev --workspace=server",
     "dev:client": "npm run dev --workspace=client",
     "build": "npm run build --workspace=client",
-    "vercel-build": "node node_modules/prisma/build/index.js generate --schema=server/prisma/schema.prisma && npm run build --workspace=client",
+    "vercel-build": "node node_modules/prisma/build/index.js migrate deploy --schema=server/prisma/schema.prisma && node node_modules/prisma/build/index.js generate --schema=server/prisma/schema.prisma && npm run build --workspace=client",
     "db:migrate": "npm run db:migrate --workspace=server",
     "db:seed": "npm run db:seed --workspace=server",
     "db:studio": "npm run db:studio --workspace=server",
-    "db:reset": "node server/scripts/reset-db.js"
+    "db:reset": "node server/scripts/reset-db.js",
+    "db:deploy": "npx prisma migrate deploy --schema=server/prisma/schema.prisma",
+    "test:smoke": "node server/scripts/smoke-test.js"
   },
   "dependencies": {
     "@prisma/client": "^5.10.2",

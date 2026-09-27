@@ -1,233 +1,394 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import {
+  ArrowRight,
+  BookOpen,
+  Brain,
+  Calculator,
+  Check,
+  ChartLine,
+  ClipboardCheck,
+  GraduationCap,
+  Languages,
+  Mail,
+  MapPin,
+  Menu,
+  MonitorPlay,
+  Phone,
+  Route,
+  ShieldCheck,
+  Sun,
+  UsersRound,
+  X,
+} from 'lucide-react'
 import RedwoodLogo from '../shared/RedwoodLogo'
 
+const PHONE_DISPLAY = '0333 050 7765'
+const PHONE_HREF = 'tel:03330507765'
+const EMAIL = 'hello@redwoodscholars.co.uk'
+
+const navLinks = [
+  { href: '#subjects', label: 'Subjects' },
+  { href: '#how-it-works', label: 'How it works' },
+  { href: '#portal', label: 'Online portal' },
+  { href: '#testimonials', label: 'Testimonials' },
+  { href: '#contact', label: 'Contact' },
+]
+
 const subjects = [
-  { icon: '📐', title: 'Maths', desc: 'From basic numeracy to GCSE level — structured progression with regular assessment.', accent: 'forest' },
-  { icon: '📖', title: 'English', desc: 'Comprehension, grammar, spelling and creative writing across all key stages.', accent: 'redwood' },
-  { icon: '🎓', title: '11+ Preparation', desc: 'Targeted coaching for grammar school and independent school entrance exams.', accent: 'forest' },
-  { icon: '🇪🇸', title: 'Spanish', desc: 'Foundational language skills with conversational and exam-focused options.', accent: 'redwood' },
-  { icon: '🧩', title: 'Dyslexia Screening', desc: 'Professional screening assessments and personalised support plans.', accent: 'forest' },
-  { icon: '☀️', title: 'Summer Workshops', desc: 'Intensive holiday programmes to consolidate learning and prepare for the year ahead.', accent: 'redwood' },
+  { icon: Calculator, title: 'Maths', desc: 'From basic numeracy to GCSE level — structured progression with regular assessment.' },
+  { icon: BookOpen, title: 'English', desc: 'Comprehension, grammar, spelling and creative writing across all key stages.' },
+  { icon: GraduationCap, title: '11+ Preparation', desc: 'Targeted coaching for grammar school and independent school entrance exams.' },
+  { icon: Languages, title: 'Spanish', desc: 'Foundational language skills with conversational and exam-focused options.' },
+  { icon: Brain, title: 'Dyslexia Screening', desc: 'Professional screening assessments and personalised support plans.' },
+  { icon: Sun, title: 'Summer Workshops', desc: 'Intensive holiday programmes to consolidate learning and prepare for the year ahead.' },
 ]
 
 const features = [
-  { title: 'Small Class Sizes', desc: 'Maximum 5 students per group — every child gets focused attention.' },
-  { title: 'DBS-Checked Tutors', desc: 'All staff are fully DBS-cleared and First Aid trained for your peace of mind.' },
-  { title: 'Free Initial Assessment', desc: "We start with a no-obligation assessment to identify exactly where your child is." },
-  { title: 'Two Convenient Locations', desc: 'Centres in Retford and Doncaster, easily accessible across the region.' },
+  { icon: UsersRound, title: 'Small class sizes', desc: 'Maximum 5 students per group — every child gets focused attention.' },
+  { icon: ShieldCheck, title: 'DBS-checked tutors', desc: 'All staff are fully DBS-cleared and First Aid trained for your peace of mind.' },
+  { icon: ClipboardCheck, title: 'Free initial assessment', desc: 'We start with a no-obligation assessment to identify exactly where your child is.' },
+  { icon: MapPin, title: 'Two convenient locations', desc: 'Centres in Retford and Doncaster, easily accessible across the region.' },
+]
+
+const steps = [
+  {
+    icon: ClipboardCheck,
+    title: 'Free assessment',
+    desc: "Book a no-obligation assessment at one of our centres. We'll evaluate your child's current level.",
+  },
+  {
+    icon: Route,
+    title: 'A tailored programme',
+    desc: 'We recommend a learning programme built around your child, with a personalised lesson plan.',
+  },
+  {
+    icon: ChartLine,
+    title: 'Lessons and progress',
+    desc: 'Small-group lessons in centre or live online, with progress you can follow at a glance.',
+  },
+]
+
+const portalPoints = [
+  'Personalised lesson plans for every student',
+  'Auto-marked practice sheets with instant feedback',
+  'Live online lessons, working through sheets together with the tutor',
+  'Progress tracking parents can see at a glance',
 ]
 
 const testimonials = [
   {
-    quote: "My daughter passed her 11+ with one of the highest scores in the county. The structured approach at Redwood made all the difference.",
-    author: 'Parent, Retford'
+    quote: 'My daughter passed her 11+ with one of the highest scores in the county. The structured approach at Redwood made all the difference.',
+    author: 'Parent, Retford',
   },
   {
-    quote: "Within a term my son moved up two sets in maths at school. The teaching is patient, thorough and genuinely tailored.",
-    author: 'Parent, Doncaster'
+    quote: 'Within a term my son moved up two sets in maths at school. The teaching is patient, thorough and genuinely tailored.',
+    author: 'Parent, Doncaster',
   },
   {
-    quote: "The dyslexia screening and follow-up support gave us a clear path forward. We finally understood how to help our son learn.",
-    author: 'Parent, Bawtry'
+    quote: 'The dyslexia screening and follow-up support gave us a clear path forward. We finally understood how to help our son learn.',
+    author: 'Parent, Bawtry',
   },
 ]
 
-export default function MarketingHome() {
+const centres = [
+  { name: 'Retford Centre', address: '74a Bridgegate, Retford DN22 7UZ' },
+  { name: 'Doncaster Centre', address: 'Danum House, 6a South Parade, Doncaster DN1 2DY' },
+]
+
+function SectionHeading({ eyebrow, title, intro, align = 'center' }) {
+  const alignCls = align === 'center' ? 'text-center mx-auto' : ''
   return (
-    <div className="bg-cream text-forest-900 font-sans">
-      {/* ─── Top nav ─────────────────────────────────────────────────────── */}
-      <header className="sticky top-0 z-30 bg-cream/95 backdrop-blur border-b-2 border-redwood-600/20 shadow-sm">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
-          <a href="#top" className="flex items-center gap-2">
+    <div className={`max-w-2xl ${alignCls} mb-12 sm:mb-14`}>
+      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-redwood-700">{eyebrow}</p>
+      <h2 className="font-serif text-3xl sm:text-4xl font-semibold tracking-tight text-gray-900 mt-3 leading-tight">
+        {title}
+      </h2>
+      {intro && <p className="text-gray-600 mt-4 leading-relaxed">{intro}</p>}
+    </div>
+  )
+}
+
+/* A calm, illustrative preview of a live lesson worksheet (decorative). */
+function PortalPreview() {
+  return (
+    <div className="modal-panel overflow-hidden" aria-hidden="true">
+      <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200 bg-gray-50">
+        <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
+          <MonitorPlay className="icon text-redwood-600" />
+          Live lesson
+        </div>
+        <span className="badge-success">
+          <span className="w-1.5 h-1.5 rounded-full bg-forest-600" />
+          Tutor connected
+        </span>
+      </div>
+      <div className="p-5 sm:p-6">
+        <p className="eyebrow">Maths · Fractions</p>
+        <p className="font-serif text-lg font-semibold text-gray-900 mt-1">Adding fractions</p>
+        <div className="mt-5 space-y-3">
+          {[
+            { q: '1/4 + 1/4 =', a: '1/2', done: true },
+            { q: '1/3 + 1/6 =', a: '1/2', done: true },
+            { q: '2/5 + 1/10 =', a: '', done: false },
+          ].map((row, i) => (
+            <div key={i} className="flex items-center gap-3">
+              <span className="w-6 text-xs font-medium text-gray-400">{i + 1}.</span>
+              <span className="text-sm text-gray-800 w-24">{row.q}</span>
+              <span
+                className={`flex-1 h-9 rounded-lg border px-3 flex items-center text-sm ${
+                  row.done ? 'border-gray-200 bg-white text-gray-900' : 'border-redwood-500 ring-2 ring-redwood-500/20 bg-white'
+                }`}
+              >
+                {row.a}
+              </span>
+              <span className={`w-6 h-6 rounded-full flex items-center justify-center ${row.done ? 'bg-forest-50 text-forest-700' : 'bg-gray-100 text-gray-300'}`}>
+                <Check className="icon-sm" />
+              </span>
+            </div>
+          ))}
+        </div>
+        <div className="mt-6 flex items-center justify-between border-t border-gray-100 pt-4">
+          <div className="flex-1 mr-4">
+            <div className="h-1.5 rounded-full bg-gray-100 overflow-hidden">
+              <div className="h-full w-2/3 bg-forest-600 rounded-full" />
+            </div>
+          </div>
+          <span className="text-xs font-medium text-gray-500">2 of 3</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export default function MarketingHome() {
+  const [menuOpen, setMenuOpen] = useState(false)
+
+  return (
+    <div className="bg-canvas text-gray-900 font-sans">
+      {/* Top nav */}
+      <header className="sticky top-0 z-30 bg-canvas/90 backdrop-blur border-b border-gray-200">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
+          <a href="#top" className="flex items-center" onClick={() => setMenuOpen(false)}>
             <RedwoodLogo variant="wordmark" size="md" />
           </a>
-          <nav className="hidden md:flex items-center gap-7 text-sm font-medium text-forest-800">
-            <a href="#subjects" className="hover:text-redwood-600 transition-colors">Subjects</a>
-            <a href="#why" className="hover:text-redwood-600 transition-colors">Why Us</a>
-            <a href="#testimonials" className="hover:text-redwood-600 transition-colors">Testimonials</a>
-            <a href="#contact" className="hover:text-redwood-600 transition-colors">Contact</a>
+          <nav className="hidden lg:flex items-center gap-7 text-sm font-medium text-gray-600" aria-label="Main">
+            {navLinks.map(l => (
+              <a key={l.href} href={l.href} className="hover:text-gray-900 transition-colors">{l.label}</a>
+            ))}
           </nav>
           <div className="flex items-center gap-2">
-            <Link
-              to="/login"
-              className="text-sm font-semibold text-forest-700 hover:text-redwood-600 transition-colors px-3 py-1.5"
-            >
-              Portal Login
+            <Link to="/login" className="btn-ghost hidden sm:inline-flex">
+              Portal login
             </Link>
-            <a
-              href="tel:03330507765"
-              className="hidden sm:inline-flex bg-redwood-600 hover:bg-redwood-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors shadow-sm"
-            >
-              Free Assessment
+            <a href={PHONE_HREF} className="btn-primary hidden sm:inline-flex">
+              <Phone className="icon" aria-hidden />
+              Call us
             </a>
+            <button
+              type="button"
+              className="btn-ghost lg:hidden"
+              onClick={() => setMenuOpen(o => !o)}
+              aria-expanded={menuOpen}
+              aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+              title={menuOpen ? 'Close menu' : 'Open menu'}
+            >
+              {menuOpen ? <X className="icon-lg" aria-hidden /> : <Menu className="icon-lg" aria-hidden />}
+            </button>
           </div>
         </div>
+        {menuOpen && (
+          <nav className="lg:hidden border-t border-gray-200 bg-canvas" aria-label="Mobile">
+            <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex flex-col">
+              {navLinks.map(l => (
+                <a
+                  key={l.href}
+                  href={l.href}
+                  onClick={() => setMenuOpen(false)}
+                  className="py-2.5 text-sm font-medium text-gray-700 hover:text-gray-900"
+                >
+                  {l.label}
+                </a>
+              ))}
+              <div className="flex gap-2 pt-3 mt-2 border-t border-gray-200 sm:hidden">
+                <a href={PHONE_HREF} className="btn-primary flex-1">
+                  <Phone className="icon" aria-hidden />
+                  Call us
+                </a>
+                <Link to="/login" className="btn-secondary flex-1">Portal login</Link>
+              </div>
+            </div>
+          </nav>
+        )}
       </header>
 
-      {/* ─── Hero ───────────────────────────────────────────────────────── */}
-      <section id="top" className="relative overflow-hidden bg-gradient-to-br from-forest-700 via-forest-600 to-forest-800 text-white">
-        {/* Decorative patterns */}
-        <div className="absolute inset-0 opacity-10" style={{
-          backgroundImage: 'radial-gradient(circle at 25% 25%, rgba(255,255,255,0.4) 1px, transparent 1px)',
-          backgroundSize: '32px 32px'
-        }} />
-        <div className="absolute -top-20 -right-20 w-96 h-96 bg-redwood-500/20 rounded-full blur-3xl" />
-        <div className="absolute -bottom-32 -left-20 w-96 h-96 bg-redwood-600/20 rounded-full blur-3xl" />
-
-        <div className="relative max-w-6xl mx-auto px-4 sm:px-6 pt-16 pb-20 sm:pt-24 sm:pb-28 grid md:grid-cols-2 gap-10 items-center">
+      {/* Hero */}
+      <section id="top" className="border-b border-gray-200">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-14 pb-16 sm:pt-20 sm:pb-24 grid lg:grid-cols-[1.1fr_1fr] gap-12 lg:gap-16 items-center">
           <div>
-            <span className="inline-block bg-redwood-600 text-white px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider mb-5 shadow-sm">
-              Tutoring · Retford & Doncaster
-            </span>
-            <h1 className="font-serif text-4xl sm:text-5xl lg:text-6xl font-bold leading-[1.05] mb-5">
-              Teaching the way <span className="text-redwood-300 italic">you learn</span>.
+            <p className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-redwood-700">
+              <MapPin className="icon-sm" aria-hidden />
+              Tuition in Retford &amp; Doncaster
+            </p>
+            <h1 className="font-serif text-[2.5rem] leading-[1.08] sm:text-5xl lg:text-6xl font-semibold tracking-tight text-gray-900 mt-5">
+              Teaching the way <span className="italic text-redwood-700">you learn</span>.
             </h1>
-            <p className="text-lg text-forest-50 leading-relaxed mb-7 max-w-lg">
+            <p className="text-lg text-gray-600 leading-relaxed mt-6 max-w-xl">
               Quality tuition in English, Maths, 11+ preparation and more — with experienced, DBS-checked teachers who tailor every lesson to the individual child.
             </p>
-            <div className="flex flex-wrap items-center gap-3">
-              <a
-                href="tel:03330507765"
-                className="bg-redwood-600 hover:bg-redwood-700 text-white font-semibold px-6 py-3 rounded-lg transition-colors shadow-lg"
-              >
-                Book a Free Assessment
+            <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3 mt-8">
+              <a href={PHONE_HREF} className="btn-primary px-5 py-3 text-base">
+                Book a free assessment
+                <ArrowRight className="icon" aria-hidden />
               </a>
-              <a
-                href="#subjects"
-                className="bg-white/10 hover:bg-white/20 backdrop-blur text-white border border-white/30 font-semibold px-6 py-3 rounded-lg transition-colors"
-              >
-                Explore Subjects
-              </a>
-            </div>
-            <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-forest-100">
-              <div className="flex items-center gap-2">
-                <span className="w-1.5 h-1.5 bg-redwood-400 rounded-full" />
-                Ages 3–16
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="w-1.5 h-1.5 bg-redwood-400 rounded-full" />
-                Group sizes max 5
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="w-1.5 h-1.5 bg-redwood-400 rounded-full" />
-                DBS Cleared
-              </div>
-            </div>
-          </div>
-
-          {/* Right column: portal feature card */}
-          <div className="relative">
-            <div className="bg-white text-forest-900 rounded-2xl shadow-2xl p-7 sm:p-8 relative z-10 border-t-4 border-redwood-600">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-11 h-11 bg-forest-100 text-forest-700 rounded-full flex items-center justify-center text-xl">
-                  ✨
-                </div>
-                <div>
-                  <span className="inline-block bg-redwood-100 text-redwood-700 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider mb-1">New</span>
-                  <h3 className="font-serif text-lg font-bold text-forest-900">Online Lesson Portal</h3>
-                </div>
-              </div>
-              <p className="text-sm text-forest-700 mb-4 leading-relaxed">
-                Students get their own digital learning portal with personalised lesson plans, interactive worksheets, and live whiteboard sessions with their tutor.
-              </p>
-              <ul className="space-y-2.5 mb-6 text-sm text-forest-800">
-                <li className="flex items-start gap-2.5">
-                  <span className="flex-shrink-0 w-5 h-5 bg-forest-600 text-white rounded-full flex items-center justify-center text-xs font-bold mt-0.5">✓</span>
-                  Auto-marked practice sheets with instant feedback
-                </li>
-                <li className="flex items-start gap-2.5">
-                  <span className="flex-shrink-0 w-5 h-5 bg-forest-600 text-white rounded-full flex items-center justify-center text-xs font-bold mt-0.5">✓</span>
-                  Live whiteboard sessions with your tutor
-                </li>
-                <li className="flex items-start gap-2.5">
-                  <span className="flex-shrink-0 w-5 h-5 bg-forest-600 text-white rounded-full flex items-center justify-center text-xs font-bold mt-0.5">✓</span>
-                  Progress tracking parents can see at a glance
-                </li>
-              </ul>
-              <Link
-                to="/login"
-                className="block w-full text-center bg-forest-600 hover:bg-forest-700 text-white font-semibold py-3 rounded-lg transition-colors shadow-sm"
-              >
-                Sign in to the portal →
+              <Link to="/login" className="btn-secondary px-5 py-3 text-base">
+                Portal login
               </Link>
             </div>
-            {/* Decorative shapes */}
-            <div className="absolute -top-6 -right-6 w-32 h-32 bg-redwood-500 rounded-full -z-0 opacity-30" />
-            <div className="absolute -bottom-8 -left-8 w-24 h-24 bg-forest-400 rounded-full -z-0 opacity-30" />
-          </div>
-        </div>
-      </section>
-
-      {/* ─── Subjects ───────────────────────────────────────────────────── */}
-      <section id="subjects" className="py-20 sm:py-24 bg-cream">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <div className="text-center mb-14">
-            <span className="text-redwood-600 font-bold text-sm uppercase tracking-widest">Our Programmes</span>
-            <h2 className="font-serif text-3xl sm:text-4xl lg:text-5xl font-bold text-forest-900 mt-3">Subjects we teach</h2>
-            <div className="w-16 h-1 bg-redwood-600 mx-auto mt-4 rounded-full" />
-            <p className="text-forest-700 mt-5 max-w-2xl mx-auto leading-relaxed">
-              Structured learning programmes designed to build solid foundations and prepare students for every academic challenge ahead.
+            <p className="mt-4 text-sm text-gray-500">
+              Or call us on{' '}
+              <a href={PHONE_HREF} className="link font-medium">{PHONE_DISPLAY}</a>
             </p>
+            <ul className="mt-8 flex flex-wrap gap-x-6 gap-y-2 text-sm text-gray-700">
+              {['Ages 3–16', 'Groups of 5 or fewer', 'DBS cleared'].map(t => (
+                <li key={t} className="flex items-center gap-2">
+                  <Check className="icon text-forest-600" aria-hidden />
+                  {t}
+                </li>
+              ))}
+            </ul>
           </div>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-            {subjects.map(s => {
-              const accentBorder = s.accent === 'forest' ? 'border-l-forest-500' : 'border-l-redwood-500'
-              const accentBg = s.accent === 'forest' ? 'bg-forest-100' : 'bg-redwood-100'
-              return (
-                <div key={s.title} className={`bg-white border border-forest-100 ${accentBorder} border-l-4 rounded-xl p-6 hover:shadow-xl hover:-translate-y-1 transition-all`}>
-                  <div className={`w-12 h-12 ${accentBg} rounded-lg flex items-center justify-center text-2xl mb-3`}>
-                    {s.icon}
-                  </div>
-                  <h3 className="font-serif text-xl font-bold text-forest-900 mb-2">{s.title}</h3>
-                  <p className="text-sm text-forest-700 leading-relaxed">{s.desc}</p>
-                </div>
-              )
-            })}
+
+          <div className="relative">
+            <div className="absolute -inset-4 sm:-inset-6 bg-cream rounded-3xl" aria-hidden="true" />
+            <div className="relative">
+              <PortalPreview />
+            </div>
           </div>
         </div>
       </section>
 
-      {/* ─── Why us ─────────────────────────────────────────────────────── */}
-      <section id="why" className="py-20 sm:py-24 bg-forest-700 text-white relative overflow-hidden">
-        <div className="absolute inset-0 opacity-5" style={{
-          backgroundImage: 'radial-gradient(circle at 75% 50%, white 1px, transparent 1px)',
-          backgroundSize: '24px 24px'
-        }} />
-        <div className="relative max-w-6xl mx-auto px-4 sm:px-6">
-          <div className="text-center mb-14">
-            <span className="text-redwood-300 font-bold text-sm uppercase tracking-widest">Why Redwood</span>
-            <h2 className="font-serif text-3xl sm:text-4xl lg:text-5xl font-bold mt-3">A trusted home for your child's learning</h2>
-            <div className="w-16 h-1 bg-redwood-400 mx-auto mt-4 rounded-full" />
-          </div>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {features.map((f, i) => (
-              <div key={f.title} className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-6 text-center hover:bg-white/10 transition-colors">
-                <div className="w-14 h-14 mx-auto bg-redwood-500 text-white rounded-full flex items-center justify-center font-serif text-xl font-bold mb-4 shadow-lg">
-                  {i + 1}
+      {/* Trust bar */}
+      <section id="why" className="bg-white border-b border-gray-200" aria-label="Why families choose Redwood">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10 sm:py-12 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+          {features.map(f => (
+            <div key={f.title} className="flex gap-4">
+              <div className="w-10 h-10 flex-shrink-0 rounded-lg bg-redwood-50 text-redwood-700 flex items-center justify-center">
+                <f.icon className="icon-lg" aria-hidden />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900">{f.title}</h3>
+                <p className="text-sm text-gray-600 leading-relaxed mt-1">{f.desc}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Subjects */}
+      <section id="subjects" className="py-20 sm:py-28">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+          <SectionHeading
+            eyebrow="Our programmes"
+            title="Subjects we teach"
+            intro="Structured learning programmes designed to build solid foundations and prepare students for every academic challenge ahead."
+          />
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {subjects.map(s => (
+              <div
+                key={s.title}
+                className="bg-white rounded-xl border border-gray-200 shadow-card p-6 sm:p-7 transition-colors hover:border-gray-300"
+              >
+                <div className="w-11 h-11 rounded-lg bg-cream text-redwood-700 flex items-center justify-center">
+                  <s.icon className="icon-lg" aria-hidden />
                 </div>
-                <h3 className="font-serif text-lg font-bold mb-2">{f.title}</h3>
-                <p className="text-sm text-forest-100 leading-relaxed">{f.desc}</p>
+                <h3 className="font-serif text-xl font-semibold text-gray-900 mt-5">{s.title}</h3>
+                <p className="text-sm text-gray-600 leading-relaxed mt-2">{s.desc}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ─── Testimonials ───────────────────────────────────────────────── */}
-      <section id="testimonials" className="py-20 sm:py-24 bg-cream">
+      {/* How it works */}
+      <section id="how-it-works" className="py-20 sm:py-28 bg-cream border-y border-gray-200">
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <div className="text-center mb-14">
-            <span className="text-redwood-600 font-bold text-sm uppercase tracking-widest">From Our Families</span>
-            <h2 className="font-serif text-3xl sm:text-4xl lg:text-5xl font-bold text-forest-900 mt-3">What parents are saying</h2>
-            <div className="w-16 h-1 bg-redwood-600 mx-auto mt-4 rounded-full" />
+          <SectionHeading eyebrow="Getting started" title="How it works" />
+          <ol className="grid md:grid-cols-3 gap-5 md:gap-6">
+            {steps.map((s, i) => (
+              <li key={s.title} className="bg-white rounded-xl border border-gray-200 shadow-card p-6 sm:p-7">
+                <div className="flex items-center justify-between">
+                  <span className="font-serif text-4xl font-semibold text-redwood-600 leading-none">{i + 1}</span>
+                  <s.icon className="icon-lg text-gray-400" aria-hidden />
+                </div>
+                <h3 className="font-serif text-xl font-semibold text-gray-900 mt-6">{s.title}</h3>
+                <p className="text-sm text-gray-600 leading-relaxed mt-2">{s.desc}</p>
+              </li>
+            ))}
+          </ol>
+          <div className="mt-10 text-center">
+            <a href={PHONE_HREF} className="btn-primary px-5 py-3 text-base">
+              Book a free assessment
+              <ArrowRight className="icon" aria-hidden />
+            </a>
           </div>
-          <div className="grid md:grid-cols-3 gap-6">
-            {testimonials.map((t, i) => (
-              <figure key={i} className="bg-white border border-forest-100 rounded-xl p-7 flex flex-col shadow-sm hover:shadow-md transition-shadow">
-                <div className="text-redwood-500 text-5xl font-serif leading-none mb-3">“</div>
-                <blockquote className="text-forest-800 text-sm leading-relaxed mb-5 flex-1 italic">{t.quote}</blockquote>
-                <figcaption className="text-xs font-bold text-redwood-600 uppercase tracking-wider border-t border-forest-100 pt-3">
-                  — {t.author}
+        </div>
+      </section>
+
+      {/* Online portal */}
+      <section id="portal" className="py-20 sm:py-28">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
+          <div>
+            <SectionHeading
+              align="left"
+              eyebrow="Online lesson portal"
+              title="Learning that continues between lessons"
+              intro="Students get their own digital learning portal with personalised lesson plans, interactive worksheets, and live online lessons where they work through sheets together with their tutor."
+            />
+            <ul className="space-y-3 -mt-4">
+              {portalPoints.map(p => (
+                <li key={p} className="flex items-start gap-3 text-gray-700">
+                  <span className="mt-0.5 w-5 h-5 flex-shrink-0 rounded-full bg-forest-50 text-forest-700 flex items-center justify-center">
+                    <Check className="icon-sm" aria-hidden />
+                  </span>
+                  <span className="text-sm sm:text-base leading-relaxed">{p}</span>
+                </li>
+              ))}
+            </ul>
+            <Link to="/login" className="btn-secondary mt-8">
+              Sign in to the portal
+              <ArrowRight className="icon" aria-hidden />
+            </Link>
+          </div>
+          <div className="grid sm:grid-cols-2 gap-4">
+            {[
+              { icon: MonitorPlay, title: 'Live online lessons', desc: 'Student and tutor see the same worksheet and work through it together.' },
+              { icon: ClipboardCheck, title: 'Interactive worksheets', desc: 'Answers are typed straight in, with instant feedback on practice sheets.' },
+              { icon: Route, title: 'Personalised plans', desc: 'Each student follows a lesson plan built around their needs.' },
+              { icon: ChartLine, title: 'Clear progress', desc: 'Completed sheets and scores are easy for families to follow.' },
+            ].map(c => (
+              <div key={c.title} className="card-muted">
+                <c.icon className="icon-lg text-redwood-700" aria-hidden />
+                <h3 className="text-sm font-semibold text-gray-900 mt-4">{c.title}</h3>
+                <p className="text-sm text-gray-600 leading-relaxed mt-1">{c.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Testimonials */}
+      <section id="testimonials" className="py-20 sm:py-28 bg-white border-y border-gray-200">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+          <SectionHeading eyebrow="From our families" title="What parents are saying" />
+          <div className="grid md:grid-cols-3 gap-5 md:gap-6">
+            {testimonials.map(t => (
+              <figure key={t.author} className="rounded-xl border border-gray-200 bg-canvas p-6 sm:p-7 flex flex-col">
+                <blockquote className="font-serif text-lg leading-relaxed text-gray-800 flex-1">
+                  &ldquo;{t.quote}&rdquo;
+                </blockquote>
+                <figcaption className="mt-6 pt-4 border-t border-gray-200 text-sm font-medium text-gray-500">
+                  {t.author}
                 </figcaption>
               </figure>
             ))}
@@ -235,66 +396,67 @@ export default function MarketingHome() {
         </div>
       </section>
 
-      {/* ─── CTA / Contact ─────────────────────────────────────────────── */}
-      <section id="contact" className="py-20 sm:py-24 bg-redwood-700 text-white relative overflow-hidden">
-        <div className="absolute -top-24 -right-24 w-96 h-96 bg-redwood-600/40 rounded-full blur-3xl" />
-        <div className="absolute -bottom-24 -left-24 w-96 h-96 bg-forest-700/40 rounded-full blur-3xl" />
-        <div className="relative max-w-5xl mx-auto px-4 sm:px-6 text-center">
-          <h2 className="font-serif text-3xl sm:text-4xl lg:text-5xl font-bold mb-4">Ready to get started?</h2>
-          <p className="text-redwood-50 max-w-2xl mx-auto mb-8 leading-relaxed text-lg">
-            Book a free initial assessment at one of our centres. We'll evaluate your child's current level and recommend a tailored learning programme.
-          </p>
-          <div className="flex flex-wrap items-center justify-center gap-3 mb-12">
-            <a
-              href="tel:03330507765"
-              className="bg-white text-redwood-700 hover:bg-redwood-50 font-bold px-7 py-3.5 rounded-lg transition-colors shadow-lg text-base"
-            >
-              📞 Call 0333 050 7765
-            </a>
-            <a
-              href="mailto:hello@redwoodscholars.co.uk"
-              className="bg-forest-700 hover:bg-forest-800 text-white font-bold px-7 py-3.5 rounded-lg transition-colors shadow-lg text-base"
-            >
-              ✉ Email Us
-            </a>
-          </div>
-
-          {/* Locations */}
-          <div className="grid sm:grid-cols-2 gap-5 max-w-3xl mx-auto text-left">
-            <div className="bg-white text-forest-900 rounded-xl p-6 shadow-md">
-              <div className="flex items-center gap-2 mb-2">
-                <span className="w-8 h-8 bg-redwood-100 text-redwood-700 rounded-full flex items-center justify-center text-sm font-bold">📍</span>
-                <h3 className="font-serif text-lg font-bold">Retford Centre</h3>
+      {/* Contact */}
+      <section id="contact" className="py-20 sm:py-28">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+          <div className="rounded-2xl bg-redwood-700 text-white px-6 py-12 sm:px-12 sm:py-16 grid lg:grid-cols-[1.2fr_1fr] gap-10 lg:gap-14 items-start">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-redwood-100">Get in touch</p>
+              <h2 className="font-serif text-3xl sm:text-4xl font-semibold tracking-tight mt-3 leading-tight">
+                Ready to get started?
+              </h2>
+              <p className="text-redwood-50/90 mt-4 leading-relaxed max-w-lg">
+                Book a free initial assessment at one of our centres. We'll evaluate your child's current level and recommend a tailored learning programme.
+              </p>
+              <div className="flex flex-col sm:flex-row flex-wrap gap-3 mt-8">
+                <a
+                  href={PHONE_HREF}
+                  className="btn bg-white text-redwood-700 hover:bg-redwood-50 px-5 py-3 text-base shadow-card"
+                >
+                  <Phone className="icon" aria-hidden />
+                  Call {PHONE_DISPLAY}
+                </a>
+                <a
+                  href={`mailto:${EMAIL}`}
+                  className="btn border border-white/40 text-white hover:bg-white/10 px-5 py-3 text-base"
+                >
+                  <Mail className="icon" aria-hidden />
+                  Email us
+                </a>
               </div>
-              <p className="text-sm text-forest-700 ml-10">74a Bridgegate, Retford DN22 7UZ</p>
             </div>
-            <div className="bg-white text-forest-900 rounded-xl p-6 shadow-md">
-              <div className="flex items-center gap-2 mb-2">
-                <span className="w-8 h-8 bg-forest-100 text-forest-700 rounded-full flex items-center justify-center text-sm font-bold">📍</span>
-                <h3 className="font-serif text-lg font-bold">Doncaster Centre</h3>
-              </div>
-              <p className="text-sm text-forest-700 ml-10">Danum House, 6a South Parade, Doncaster DN1 2DY</p>
+            <div className="space-y-4">
+              {centres.map(c => (
+                <div key={c.name} className="bg-white text-gray-900 rounded-xl p-5 sm:p-6 flex gap-4">
+                  <div className="w-10 h-10 flex-shrink-0 rounded-lg bg-redwood-50 text-redwood-700 flex items-center justify-center">
+                    <MapPin className="icon-lg" aria-hidden />
+                  </div>
+                  <div>
+                    <h3 className="font-serif text-lg font-semibold">{c.name}</h3>
+                    <p className="text-sm text-gray-600 mt-1">{c.address}</p>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
       </section>
 
-      {/* ─── Footer ─────────────────────────────────────────────────────── */}
-      <footer className="bg-forest-900 text-forest-100 py-12">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm">
-          <div className="flex items-center gap-2 text-redwood-300">
-            <svg width="32" height="32" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-              <rect x="44" y="80" width="12" height="16" rx="1.5" fill="#5a1c10" />
-              <path d="M50 6 L28 30 L72 30 Z" fill="currentColor" opacity="0.95" />
-              <path d="M50 26 L22 52 L78 52 Z" fill="currentColor" opacity="0.85" />
-              <path d="M50 46 L16 78 L84 78 Z" fill="currentColor" />
-            </svg>
-            <span className="font-serif font-bold text-base text-forest-100">Redwood Scholars Tuition</span>
-          </div>
-          <div className="flex items-center gap-5 text-forest-300 text-xs">
-            <Link to="/login" className="hover:text-white transition-colors font-medium">Portal Login</Link>
-            <a href="tel:03330507765" className="hover:text-white transition-colors">0333 050 7765</a>
-            <span>© {new Date().getFullYear()} Redwood Scholars</span>
+      {/* Footer */}
+      <footer className="border-t border-gray-200 bg-cream">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10 flex flex-col md:flex-row md:items-center justify-between gap-6 text-sm">
+          <RedwoodLogo variant="wordmark" size="sm" />
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-3 text-gray-600">
+            <a href={PHONE_HREF} className="inline-flex items-center gap-1.5 hover:text-gray-900">
+              <Phone className="icon" aria-hidden />
+              {PHONE_DISPLAY}
+            </a>
+            <a href={`mailto:${EMAIL}`} className="inline-flex items-center gap-1.5 hover:text-gray-900">
+              <Mail className="icon" aria-hidden />
+              {EMAIL}
+            </a>
+            <Link to="/login" className="font-medium hover:text-gray-900">Portal login</Link>
+            <span className="text-gray-500">&copy; {new Date().getFullYear()} Redwood Scholars</span>
           </div>
         </div>
       </footer>

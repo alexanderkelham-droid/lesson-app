@@ -20,10 +20,10 @@ Tutors need an account before they can be assigned to lesson plans.
 2. Fill in:
    - **Name** (e.g. "James Tutor")
    - **Email** (their personal or work email — they'll use this to sign in)
-   - **Temporary password** — click **Generate** for a memorable one (e.g. `quick-oak-247`), or set your own
+   - **Temporary password** — click **Generate** for a memorable one (e.g. `maple-otter-comet-47`), or set your own (at least 8 characters)
 3. Click **Add Tutor**
 
-> **Important:** Send the tutor their email and temporary password securely — they'll use these to sign in. They can change the password later (currently a planned feature).
+> **Important:** Send the tutor their email and temporary password securely — they'll use these to sign in. If they forget it, you can reset it from their profile (see Troubleshooting).
 
 The tutor will now appear in the **Tutors** tab of the dashboard.
 
@@ -68,24 +68,77 @@ A lesson plan is a sequence of worksheets the student works through, optionally 
 
 ---
 
+## Group sessions (classes)
+
+Most lessons at the centre are small groups. A **group session** is one timetable slot with several students. Each child still has their own plan and work.
+
+- **Create:** click **New group session** on the dashboard or calendar. Give it a title (e.g. "Year 5 Maths"), tutor, date and time, length and location, and choose **repeat weekly** if it's a regular class. Then pick the students.
+- **On the calendar** the class shows as one event ("Year 5 Maths · 4"). Click it to see every student, what they're working on that lesson and their scores.
+- **Register:** tick Present or Absent per child. Unfinished work carries over to each child's next lesson automatically.
+- **Reschedule:** drag the event or click Edit. Every child's lesson and planned work moves with it. For a weekly class you can change just this week or this and all following weeks.
+- **Print:** "Print originals" gives one PDF for the whole class, with a cover page per child followed by their sheets.
+- **Add or remove students, cancel a week, or ungroup** from the same panel. Cancelling moves each child's work to their next lesson.
+
+## Rescheduling and cancelling a lesson
+
+- **Move a lesson:** drag it on the calendar, or click the pencil icon in the student's Sessions list. Its planned sheets move with it. If the new day already has a lesson, you'll be asked whether to **merge** them.
+- **Cancel a lesson** (illness, holiday): use **Cancel lesson** and choose whether its work moves to the next lesson (recommended) or stays unscheduled.
+- **Missed a lesson?** Past lessons that weren't marked attended show **Move work to next lesson**.
+- **Move one sheet** to a different lesson: use **Move to…** next to it in the Sessions list.
+
+## No accidental repeats
+
+The portal remembers every sheet each student has done, across all their plans. When you pick sheets (plan builder, live lesson "+ Add", AI suggestions), sheets they've already done show **Done 60%** or **Planned**. Adding one again asks for confirmation (useful for revision).
+
+---
+
+## Planning lessons with AI
+
+On a student's page (or in the plan builder), click **✨ Plan with AI**.
+
+1. Choose how many lessons to plan (1–4). Optionally add guidance, e.g. "45 minutes, SATs in May, focus on fractions".
+2. Click **Suggest lessons**. After about 20–30 seconds you'll see:
+   - a short **assessment** of the student, based on their scores, the questions they got wrong and your notes
+   - **focus areas**
+   - suggested worksheets and tasks for each lesson, each with a reason
+3. Click any sheet name to preview it. Untick anything you don't want, and choose which session each lesson goes into.
+4. Click **Add to lessons**. The AI's reasons, the lesson goal and teaching tips are saved as private tutor notes on the items.
+
+Nothing changes until you click Add. Always check the suggestions; you know the student best. Sheets marked **review** may have errors in the digital version, so print the original PDF for those.
+
+---
+
+## Printing worksheets
+
+**Preview any sheet:** click its name anywhere in a plan (student page, sessions, History, plan builder, library). The pop-up has two views: **Digital** (the online version) and **📄 Original scan** (the real worksheet PDF).
+
+**Print one lesson:** on the student's page, click **🖨 Print lesson pack** and pick the session. Then either:
+- **Open print view (digital):** a clean A4 version of the digital sheets, with optional answer key.
+- **📄 Download original sheets (PDF):** the original scanned worksheets merged into one PDF in lesson order, with a cover page checklist. Items with no scan (IXL tasks, a few hand-made sheets) are listed on the cover.
+
+**Print everything for a day ("print run"):** on the **Today** tab, pick the day (click **Tomorrow** to prepare the evening before) and click **Print all originals**. You get one PDF with every student's lesson: a cover page per student, then their sheets. Print it once and hand them out.
+
+---
+
 ## Running a live lesson
 
-1. From the student's profile, click **Start Live Session** at the top of the active plan
-2. The whiteboard opens with:
-   - **Left sidebar:** the lesson plan items — click any to view alongside the canvas
-   - **Centre:** a live whiteboard (real-time drawing, shapes, text — both you and the student can see each other's edits)
-   - **Right (when sheet open):** the worksheet questions for reference
-3. Need to add a sheet mid-lesson? Click **+ Add** in the left sidebar to search and add without leaving the whiteboard
-4. When done, click **End Session**
+1. From the student's profile (or the **Today** tab), click **Start Live Session**
+2. The live room opens:
+   - **Left sidebar:** this lesson's items. Click one to open it on **both** screens
+   - **Centre:** the worksheet. As the student types, their answers appear on your screen within a couple of seconds. The expected answer is shown under each question
+3. Mark each answer **✓ Correct** or **✗ Wrong**. The student sees your marks appear next to their answers
+4. Click **Save result** when you're done with a sheet. This saves the student's answers and your marks to their record, marks the item complete, and shows the score
+5. Need another sheet mid-lesson? Click **+ Add** in the sidebar to search the library and add it to today's lesson
+6. Click **End** when finished. Mark the session attended from the student's profile or the Today tab. Anything not finished moves to the next lesson automatically
 
-The student joins the same whiteboard from their dashboard via **Join Live Lesson with Tutor**. The board state persists between sessions — your work is still there next time you open it.
+The student joins from their dashboard via **Join Live Lesson**. If they join before you've started, they see a "your lesson hasn't started yet" screen that opens by itself as soon as you start.
 
 ---
 
 ## Today view
 
 The **Today** tab on your dashboard shows all sessions scheduled for today across the whole centre. For each:
-- ▶ **Start** — opens the live whiteboard
+- ▶ **Start** — opens the live lesson room
 - **Open** — goes to the student's profile
 - ✓ **Mark attended** — record that the lesson happened
 
@@ -138,10 +191,12 @@ The **Calendar** tab on the manager dashboard shows the whole centre's schedule 
 
 ## Troubleshooting
 
-**A student says they can't log in** — check their email is correct on their profile. If they've forgotten the password, you'll need to reset it for them (currently: ask the developer to run a reset script — a self-serve flow is planned).
+**A student says they can't log in** — check their email is correct on their profile. If they've forgotten the password, open their profile and click **Reset password**. Leave the box blank to generate a memorable one, or type your own (at least 8 characters). The new password is shown once: pass it on to the family. Tutors can do this for their own students too. After 10 wrong attempts, login is paused for 15 minutes.
 
 **A tutor isn't showing in the lesson plan dropdown** — make sure they're added in the **Tutors** tab.
 
 **No sheets in the library** — the sheet library is shared across the whole centre. They're loaded from the original worksheet PDFs. If the library is empty, contact the developer.
 
-**The live session won't connect** — refresh the page. The whiteboard uses a third-party real-time service that occasionally needs a reconnect.
+**The live session isn't updating** — answers and marks sync every 2–3 seconds. If nothing changes for longer, refresh the page on both sides. Nothing is lost: answers are saved on the server as they're typed.
+
+**The whole site says it can't connect** — the database may be paused (this happens on the free hosting tier after a quiet week). Contact the developer. It takes a minute to restore.

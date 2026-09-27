@@ -1,0 +1,100 @@
+/* Printable worksheet / lesson-pack styles. Everything is scoped under
+   .print-root except the @page rule and .no-print helper. */
+
+@page {
+  size: A4;
+  margin: 14mm 14mm 16mm;
+}
+
+.print-root {
+  background: #e7e5e4;
+  min-height: 100vh;
+  color: #000;
+  font-family: Inter, system-ui, sans-serif;
+}
+
+/* One A4-ish sheet of paper on screen */
+.print-root .paper {
+  background: #fff;
+  width: 210mm;
+  max-width: 100%;
+  min-height: 297mm;
+  margin: 0 auto 16px;
+  padding: 14mm;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .15);
+  box-sizing: border-box;
+}
+
+.print-root .page-break { break-before: page; page-break-before: always; }
+.print-root .avoid-break { break-inside: avoid; page-break-inside: avoid; }
+
+.print-root .sheet-brand {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 8.5pt; color: #444; letter-spacing: .04em; text-transform: uppercase;
+  border-bottom: 1px solid #000; padding-bottom: 3px; margin-bottom: 8px;
+}
+.print-root .cover-brand {
+  display: flex; justify-content: space-between; align-items: center;
+  border-bottom: 1px solid #000; padding-bottom: 6px;
+}
+.print-root .cover-brand > span {
+  font-size: 8.5pt; color: #444; letter-spacing: .04em; text-transform: uppercase;
+}
+.print-root .name-line {
+  display: flex; gap: 24px; font-size: 11pt; margin: 6px 0 12px;
+}
+.print-root .name-line span { flex: 1; display: flex; align-items: flex-end; gap: 6px; white-space: nowrap; }
+.print-root .name-line span::after { content: ''; flex: 1; border-bottom: 1px solid #000; height: 1em; }
+.print-root .sheet-title {
+  font-family: Fraunces, Georgia, serif; font-size: 18pt; font-weight: 600; line-height: 1.2; margin: 0 0 12px;
+}
+.print-root .passage {
+  font-family: Georgia, 'Times New Roman', serif; font-size: 12.5pt; line-height: 1.6;
+  white-space: pre-wrap; border: 1px solid #000; padding: 10px 14px; margin-bottom: 16px;
+}
+.print-root .question { display: flex; gap: 10px; margin-bottom: 18px; font-size: 12pt; line-height: 1.45; }
+.print-root .q-num { font-weight: 700; min-width: 1.6em; }
+.print-root .q-body { flex: 1; min-width: 0; }
+.print-root .q-points { font-size: 9pt; color: #555; white-space: nowrap; margin-left: 6px; }
+.print-root .blank { display: inline-block; min-width: 7em; border-bottom: 1px solid #000; }
+.print-root .answer-line { display: flex; align-items: flex-end; gap: 6px; margin-top: 10px; max-width: 70%; }
+.print-root .answer-line::after { content: ''; flex: 1; border-bottom: 1px solid #000; height: 1.3em; }
+.print-root .ruled { margin-top: 6px; }
+.print-root .ruled div { height: 9mm; border-bottom: 1px solid #777; }
+.print-root .options { list-style: none; padding: 0; margin: 6px 0 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(42%, 1fr)); gap: 4px 20px; }
+.print-root .options li { display: flex; gap: 8px; align-items: baseline; }
+.print-root .bubble { font-size: 14pt; line-height: 1; }
+.print-root .check-box { display: inline-block; width: 3.6mm; height: 3.6mm; border: 1.3px solid #000; flex-shrink: 0; align-self: center; }
+.print-root .match { display: grid; grid-template-columns: 1fr 22mm 1fr; row-gap: 8px; margin-top: 8px; }
+.print-root .match .left { text-align: right; display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
+.print-root .match .right { display: flex; align-items: center; gap: 8px; }
+.print-root .dot { width: 7px; height: 7px; border-radius: 50%; background: #000; flex-shrink: 0; }
+.print-root .order-list { list-style: none; padding: 0; margin: 6px 0 0; }
+.print-root .order-list li { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.print-root .num-box { width: 9mm; height: 9mm; border: 1.5px solid #000; flex-shrink: 0; }
+.print-root .q-image { max-width: 100%; max-height: 90mm; margin: 6px 0; display: block; }
+
+.print-root .cover h1 { font-family: Fraunces, Georgia, serif; font-size: 26pt; font-weight: 600; margin: 18px 0 4px; }
+.print-root .cover dl { display: grid; grid-template-columns: 32mm 1fr; gap: 6px 10px; font-size: 12pt; margin: 18px 0; }
+.print-root .cover dt { font-weight: 600; }
+.print-root .checklist { list-style: none; padding: 0; margin: 0; font-size: 12pt; }
+.print-root .checklist li { display: flex; gap: 10px; align-items: flex-start; padding: 7px 0; border-bottom: 1px solid #ccc; }
+.print-root .tick-box { width: 5mm; height: 5mm; border: 1.5px solid #000; flex-shrink: 0; margin-top: 2px; }
+.print-root .muted { color: #555; font-size: 9.5pt; }
+.print-root .notes-box { border: 1px dashed #000; padding: 8px 12px; margin-top: 14px; font-size: 10.5pt; white-space: pre-wrap; }
+
+.print-root .key h2 { font-family: Fraunces, Georgia, serif; font-size: 16pt; margin: 0 0 8px; }
+.print-root .key h3 { font-size: 12pt; font-weight: 700; margin: 14px 0 4px; }
+.print-root .key ol { margin: 0; padding-left: 1.6em; font-size: 10.5pt; line-height: 1.5; }
+
+@media print {
+  .no-print { display: none !important; }
+  html, body { background: #fff !important; }
+  .print-root { background: #fff; min-height: 0; }
+  .print-root .paper {
+    width: auto; min-height: 0; margin: 0; padding: 0; box-shadow: none;
+  }
+  /* Every sheet / cover / answer key starts on a fresh page */
+  .print-root .paper + .paper { break-before: page; page-break-before: always; }
+  .print-root * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}

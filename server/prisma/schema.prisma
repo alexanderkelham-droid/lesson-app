@@ -52,6 +52,7 @@ model User {
 
   studentPlans     LessonPlan[]        @relation("StudentPlans")
   tutorPlans       LessonPlan[]        @relation("TutorPlans")
+  tutorGroups      GroupSession[]      @relation("TutorGroups")
   studentResponses StudentResponse[]
   lessonDays       StudentLessonDay[]
 
@@ -78,6 +79,12 @@ model Sheet {
   contentJson     Json      @map("content_json")
   sheetType       SheetType @map("sheet_type")
   tags            String[]
+  // Original worksheet file, relative to the Worksheets/ archive (e.g. "2_Maths_PDF/Fractions/Fractions 1.pdf")
+  sourceFile      String?   @map("source_file")
+  // Hosted copy of the original PDF for printing (null until uploaded)
+  pdfUrl          String?   @map("pdf_url")
+  // How the digital version was produced: 'vision' | 'text' | 'manual'
+  digitisedBy     String?   @map("digitised_by")
   createdAt       DateTime  @default(now()) @map("created_at")
 
   lessonPlanItems      LessonPlanItem[]
@@ -109,6 +116,8 @@ model LessonPlan {
   sessions     LessonSession[]
   followUpLogs FollowUpLog[]
 
+  @@index([studentId])
+  @@index([tutorId])
   @@map("lesson_plans")
 }
 
@@ -121,14 +130,21 @@ model LessonSession {
   notes        String?
   // Live-room state (polled during in-session interactive sheet)
   activeItemId Int?      @map("active_item_id")
-  liveAnswers  Json?     @map("live_answers")  // { [questionId]: stringAnswer }
-  liveMarks    Json?     @map("live_marks")    // { [questionId]: 'correct' | 'wrong' }
+  liveAnswers  Json?     @map("live_answers")  // { [itemId]: { [questionId]: answer } }
+  liveMarks    Json?     @map("live_marks")    // { [itemId]: { [questionId]: 'correct' | 'wrong' } }
   liveUpdatedAt DateTime? @map("live_updated_at")
+  studentSeenAt DateTime? @map("student_seen_at") // last time the student's live room polled (presence)
   createdAt    DateTime  @default(now()) @map("created_at")
 
-  lessonPlan LessonPlan       @relation(fields: [lessonPlanId], references: [id], onDelete: Cascade)
-  items      LessonPlanItem[]
+  // Set when this student's lesson is part of a group session (a class)
+  groupSessionId Int?     @map("group_session_id")
 
+  lessonPlan   LessonPlan       @relation(fields: [lessonPlanId], references: [id], onDelete: Cascade)
+  groupSession GroupSession?    @relation(fields: [groupSessionId], references: [id], onDelete: SetNull)
+  items        LessonPlanItem[]
+
+  @@index([groupSessionId])
+  @@unique([lessonPlanId, scheduledAt])
   @@index([scheduledAt])
   @@map("lesson_sessions")
 }
@@ -163,6 +179,9 @@ model LessonPlanItem {
   carriedTo        LessonPlanItem[]  @relation("ItemCarryover")
   studentResponses StudentResponse[]
 
+  @@index([lessonPlanId, sessionId])
+  @@index([sessionId])
+  @@index([carriedFromId])
   @@map("lesson_plan_items")
 }
 
@@ -181,6 +200,8 @@ model StudentResponse {
   sheet          Sheet          @relation(fields: [sheetId], references: [id])
   lessonPlanItem LessonPlanItem @relation(fields: [lessonPlanItemId], references: [id])
 
+  @@index([lessonPlanItemId])
+  @@index([studentId, sheetId])
   @@map("student_responses")
 }
 
@@ -214,5 +235,30 @@ model FollowUpLog {
   sourceSheet   Sheet        @relation("SourceLogs", fields: [sourceSheetId], references: [id])
   followUpSheet Sheet        @relation("FollowUpLogs", fields: [followUpSheetId], references: [id])
 
+  @@index([lessonPlanId])
   @@map("follow_up_logs")
+}
+
+// A group lesson (class): one timetable slot with several students. Each
+// student keeps their own plan and work; their individual LessonSession for
+// this slot points here via groupSessionId.
+model GroupSession {
+  id           Int      @id @default(autoincrement())
+  title        String
+  tutorId      Int      @map("tutor_id")
+  scheduledAt  DateTime @map("scheduled_at")
+  durationMins Int?     @map("duration_mins")
+  location     String?
+  notes        String?
+  // Weekly repeats share a seriesId so "this and following" edits are possible
+  seriesId     String?  @map("series_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  tutor    User            @relation("TutorGroups", fields: [tutorId], references: [id])
+  sessions LessonSession[]
+
+  @@index([scheduledAt])
+  @@index([tutorId])
+  @@index([seriesId])
+  @@map("group_sessions")
 }

@@ -5,13 +5,13 @@ export const managerTour = [
   {
     placement: 'center',
     title: 'Welcome to the Redwood portal',
-    body: 'Quick 30-second tour of the manager dashboard so you can hit the ground running.',
+    body: 'A quick 30-second tour of the manager dashboard so you can hit the ground running.',
   },
   {
     target: '[data-tour="tab-today"]',
     placement: 'bottom',
     title: 'Today',
-    body: 'Your default landing — every lesson scheduled for today across the whole centre, with quick "Start" and "Mark attended" buttons.',
+    body: 'Your default landing — every lesson scheduled for today across the whole centre, with quick Start and Mark attended buttons.',
   },
   {
     target: '[data-tour="add-tutor"]',
@@ -40,7 +40,7 @@ export const managerTour = [
   {
     placement: 'center',
     title: 'You\'re all set',
-    body: 'You can replay this tour anytime via the ? icon in the top-right of the navbar. Happy teaching!',
+    body: 'You can replay this tour at any time with the help button at the top right of the page.',
   },
 ]
 
@@ -71,14 +71,14 @@ export const tutorTour = [
   {
     placement: 'center',
     title: 'During a lesson',
-    body: 'Inside a live session you control which sheet is on screen, the student types answers, and you mark them correct or wrong in real-time. Unfinished items roll over automatically.',
+    body: 'Inside a live session you control which sheet is on screen, the student types answers, and you mark them correct or incorrect as you go. Unfinished items roll over automatically.',
   },
 ]
 
 export const studentTour = [
   {
     placement: 'center',
-    title: 'Hi! Welcome to your portal',
+    title: 'Welcome to your portal',
     body: 'A quick tour of where things live so you can get started.',
   },
   {
@@ -101,8 +101,8 @@ export const studentTour = [
   },
   {
     placement: 'center',
-    title: 'That\'s it!',
-    body: 'Have fun learning. Your tutor will be there for live lessons when they say. Click the ? in the top corner if you want this tour again.',
+    title: 'That\'s it',
+    body: 'Have fun learning. Your tutor will be there for live lessons when they say. Press the help button at the top of the page if you want to see this tour again.',
   },
 ]
 

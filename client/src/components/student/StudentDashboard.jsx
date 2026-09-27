@@ -6,6 +6,11 @@ import LoadingSpinner from '../shared/LoadingSpinner'
 import Tour from '../shared/Tour'
 import { studentTour } from '../shared/tourSteps'
 import api from '../../lib/api'
+import { Check, ChevronRight, ClipboardList, Hourglass, BookOpen, Radio, MessageSquareText, History } from 'lucide-react'
+
+// Score colour rule: >=70 forest, 40-69 amber, <40 red (rounded first)
+const scoreText = s => { const r = Math.round(s); return r >= 70 ? 'text-forest-700' : r >= 40 ? 'text-amber-700' : 'text-red-700' }
+const scoreBar  = s => { const r = Math.round(s); return r >= 70 ? 'bg-forest-500' : r >= 40 ? 'bg-amber-400' : 'bg-red-400' }
 
 export default function StudentDashboard() {
   const { user } = useAuth()
@@ -26,7 +31,7 @@ export default function StudentDashboard() {
   }, [])
 
   if (loading) return <><Navbar /><LoadingSpinner /></>
-  if (error)   return <><Navbar /><div className="p-6 text-red-600">{error}</div></>
+  if (error)   return <><Navbar /><div className="p-6 text-red-700">{error}</div></>
 
   // Show only items the student should be working on:
   //  - completed items (so they can revisit)
@@ -38,6 +43,8 @@ export default function StudentDashboard() {
   const items = (plan?.items || [])
     .filter(i => {
       if (i.status === 'completed') return true
+      // Carried forward to a later lesson — the copy is shown instead
+      if (i._count?.carriedTo > 0) return false
       if (!i.session) return true // unscheduled
       // Keep if the session is upcoming or attended-but-incomplete-clone
       // (clone has its own future session)
@@ -47,18 +54,32 @@ export default function StudentDashboard() {
   const completed = items.filter(i => i.status === 'completed').length
   const total     = items.length
   const progress  = total > 0 ? Math.round((completed / total) * 100) : 0
+  const nextLesson = (plan?.items || [])
+    .map(i => i.session?.scheduledAt && !i.session.attendedAt ? new Date(i.session.scheduledAt) : null)
+    .filter(d => d && d.getTime() > now.getTime() - 2 * 60 * 60 * 1000)
+    .sort((a, b) => a - b)[0]
+  // A sheet set again after an earlier completed attempt is a revision
+  const allItems = plan?.items || []
+  const sheetOf = i => i.sheetId ?? i.sheet?.id
+  const isRevision = item => !!sheetOf(item) && allItems.some(o =>
+    o.id !== item.id && sheetOf(o) === sheetOf(item) && o.status === 'completed' &&
+    (o.sequenceOrder < item.sequenceOrder || (o.sequenceOrder === item.sequenceOrder && o.id < item.id)))
+  const formatSpent = secs => secs < 60 ? '<1m' : `${Math.round(secs / 60)}m`
 
   return (
     <>
       <Navbar title="My Learning" onShowTour={() => setTourForce(true)} />
-      <main className="max-w-2xl mx-auto px-4 py-6">
-        {/* Welcome banner */}
-        <div className="card mb-6 bg-gradient-to-r from-brand-600 to-indigo-500 text-white border-0">
-          <h2 className="text-xl font-bold mb-1">Welcome back, {user.name.split(' ')[0]}!</h2>
+      <main className="max-w-2xl mx-auto px-4 py-8">
+        {/* Welcome */}
+        <div className="card mb-6 bg-cream/60 border-l-4 border-l-redwood-600">
+          <p className="eyebrow mb-1">My learning</p>
+          <h2 className="font-serif text-2xl font-semibold text-gray-900 tracking-tight">
+            Welcome back, {user.name.split(' ')[0]}
+          </h2>
           {plan ? (
-            <p className="text-indigo-100 text-sm">{plan.title}</p>
+            <p className="text-base text-gray-600 mt-1">{plan.title}</p>
           ) : (
-            <p className="text-indigo-100 text-sm">No lesson plan assigned yet.</p>
+            <p className="text-base text-gray-600 mt-1">No lesson plan assigned yet.</p>
           )}
         </div>
 
@@ -66,12 +87,14 @@ export default function StudentDashboard() {
           <>
             {/* Note from tutor */}
             {plan.studentNotes && (
-              <div className="card mb-4 border-l-4 border-l-redwood-500 bg-redwood-50/50">
+              <div className="card mb-4">
                 <div className="flex items-start gap-3">
-                  <div className="text-2xl flex-shrink-0">📝</div>
+                  <div className="flex-shrink-0 w-9 h-9 rounded-full bg-redwood-50 text-redwood-700 flex items-center justify-center">
+                    <MessageSquareText className="icon-lg" aria-hidden />
+                  </div>
                   <div>
-                    <p className="text-xs uppercase tracking-wider font-semibold text-redwood-700 mb-1">From your tutor</p>
-                    <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">{plan.studentNotes}</p>
+                    <p className="eyebrow text-redwood-700 mb-1">From your tutor</p>
+                    <p className="text-base text-gray-800 leading-relaxed whitespace-pre-wrap">{plan.studentNotes}</p>
                   </div>
                 </div>
               </div>
@@ -79,32 +102,47 @@ export default function StudentDashboard() {
 
             {/* Live session button */}
             <button
+              type="button"
               data-tour="live-button"
               onClick={() => navigate(`/student/lesson-plans/${plan.id}/live`)}
-              className="w-full mb-4 bg-gradient-to-r from-purple-600 to-pink-500 text-white rounded-xl py-3 px-4 font-semibold shadow-sm hover:shadow-md transition-all flex items-center justify-center gap-2"
+              className="btn-primary w-full mb-6 py-4 px-5 text-base rounded-xl gap-3"
             >
-              <span className="w-2.5 h-2.5 bg-white rounded-full animate-pulse" />
-              Join Live Lesson with Tutor
+              <Radio className="icon-lg" aria-hidden />
+              <span className="text-left">
+                Join live lesson with your tutor
+                {nextLesson && (
+                  <span className="block text-sm font-normal text-white/85">
+                    Next lesson: {nextLesson.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' })} at {nextLesson.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                )}
+              </span>
             </button>
 
             {/* Progress bar */}
-            <div data-tour="progress-bar" className="card mb-6">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-gray-700">Overall Progress</span>
-                <span className="text-sm font-bold text-brand-600">{progress}%</span>
+            <div data-tour="progress-bar" className="card mb-8">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-base font-medium text-gray-800">Your progress</span>
+                <span className="text-base font-semibold text-forest-700">{progress}%</span>
               </div>
-              <div className="w-full bg-gray-200 rounded-full h-3">
+              <div
+                className="w-full bg-gray-100 rounded-full h-3"
+                role="progressbar"
+                aria-valuenow={progress}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-label="Sheets completed"
+              >
                 <div
-                  className="bg-brand-600 h-3 rounded-full transition-all duration-500"
+                  className="bg-forest-600 h-3 rounded-full transition-all duration-500"
                   style={{ width: `${progress}%` }}
                 />
               </div>
-              <p className="text-xs text-gray-500 mt-2">{completed} of {total} sheets completed</p>
+              <p className="text-sm text-gray-500 mt-2">{completed} of {total} sheets done</p>
             </div>
 
             {/* Timeline */}
             <div data-tour="lesson-items" className="space-y-3">
-              <h3 className="text-base font-semibold text-gray-900">Your Lesson Plan</h3>
+              <h3 className="section-title mb-1">Your lesson plan</h3>
               {items.map((item, idx) => {
                 const resp  = item.studentResponses?.[0]
                 const isCompleted = item.status === 'completed'
@@ -116,41 +154,69 @@ export default function StudentDashboard() {
                   other: 'Task'
                 }
                 const customLabel = isCustom ? (customTypeLabels[item.customType] || 'Task') : null
+                const revision = !isCustom && isRevision(item)
 
                 return (
                   <div
                     key={item.id}
-                    className={`card p-4 flex items-start gap-4 transition-shadow ${
-                      isCustom ? 'cursor-default bg-gray-50/50' : 'cursor-pointer hover:shadow-md'
+                    role={isCustom ? undefined : 'button'}
+                    tabIndex={isCustom ? undefined : 0}
+                    className={`card p-4 sm:p-5 flex items-center gap-4 transition-colors ${
+                      isCustom ? 'cursor-default' : 'cursor-pointer hover:border-gray-300 hover:bg-gray-50/60'
                     }`}
                     onClick={() => !isCustom && navigate(`/student/sheet/${item.id}`)}
+                    aria-label={isCustom ? undefined : `${revision ? 'Revision: ' : ''}${item.sheet?.title}${isCompleted ? ', done' : ''}`}
+                    onKeyDown={e => { if (!isCustom && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); navigate(`/student/sheet/${item.id}`) } }}
                   >
                     {/* Step number / check mark */}
-                    <div className={`flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold ${
-                      isCompleted ? 'bg-green-500 text-white'
-                      : isCustom ? 'bg-purple-500 text-white'
-                      : 'bg-brand-600 text-white'
+                    <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-base font-semibold ${
+                      isCompleted ? 'bg-forest-600 text-white'
+                      : isCustom ? 'bg-gray-100 text-gray-600'
+                      : 'bg-redwood-50 text-redwood-700'
                     }`}>
-                      {isCompleted ? '✓' : idx + 1}
+                      {isCompleted
+                        ? <Check className="icon-lg" aria-label="Done" />
+                        : isCustom
+                          ? <ClipboardList className="icon-lg" aria-hidden />
+                          : idx + 1}
                     </div>
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
-                          <h4 className="font-medium text-gray-900 truncate">
+                          <h4 className="text-base font-medium text-gray-900 leading-snug break-words">
                             {isCustom ? item.customTitle : item.sheet.title}
                           </h4>
-                          <span className="text-xs text-gray-500">
-                            {isCustom ? customLabel : item.sheet.subject}
-                          </span>
+                          {isCustom ? (
+                            <span className="badge mt-1">{customLabel}</span>
+                          ) : (
+                            <span className="text-sm text-gray-500 inline-flex items-center gap-2 flex-wrap">
+                              {item.sheet.subject}
+                              {revision && (
+                                <span className="badge" title="You have done this sheet before">
+                                  <History className="icon-sm" aria-hidden /> Revision
+                                </span>
+                              )}
+                            </span>
+                          )}
+                          {isCustom && !isCompleted && (
+                            <p className="text-sm text-gray-600 mt-1.5">
+                              {item.customType?.startsWith('ixl')
+                                ? 'Do this on IXL. Your tutor will tick it off.'
+                                : 'Your tutor will tick this off when it\'s done.'}
+                            </p>
+                          )}
                         </div>
                         {isCompleted && resp && (
                           resp.score != null ? (
-                            <span className={`text-sm font-bold flex-shrink-0 ${resp.score >= 70 ? 'text-green-600' : 'text-red-500'}`}>
-                              {resp.score}%
+                            <span className={`text-base font-semibold flex-shrink-0 ${scoreText(resp.score)}`}>
+                              {Math.round(resp.score)}%
                             </span>
                           ) : (
-                            <span className="text-xs font-medium text-gray-500 flex-shrink-0">Awaiting review</span>
+                            <span className="badge-warning flex-shrink-0">
+                              <Hourglass className="icon-sm" aria-hidden />
+                              Awaiting review
+                            </span>
                           )
                         )}
                       </div>
@@ -158,20 +224,24 @@ export default function StudentDashboard() {
                       {/* Score bar if completed */}
                       {isCompleted && resp && resp.score != null && (
                         <div className="mt-2 flex items-center gap-3">
-                          <div className="flex-1 bg-gray-200 rounded-full h-1.5 max-w-[120px]">
+                          <div className="flex-1 bg-gray-100 rounded-full h-1.5 max-w-[120px]">
                             <div
-                              className={`h-1.5 rounded-full ${resp.score >= 70 ? 'bg-green-500' : 'bg-red-400'}`}
-                              style={{ width: `${resp.score}%` }}
+                              className={`h-1.5 rounded-full ${scoreBar(resp.score)}`}
+                              style={{ width: `${Math.max(0, Math.min(100, resp.score))}%` }}
                             />
                           </div>
                           {resp.timeSpentSeconds && (
-                            <span className="text-xs text-gray-400">
-                              {Math.round(resp.timeSpentSeconds / 60)}m spent
+                            <span className="text-xs text-gray-500">
+                              {formatSpent(resp.timeSpentSeconds)} spent
                             </span>
                           )}
                         </div>
                       )}
                     </div>
+
+                    {!isCustom && (
+                      <ChevronRight className="icon-lg text-gray-400" aria-hidden />
+                    )}
                   </div>
                 )
               })}
@@ -181,9 +251,11 @@ export default function StudentDashboard() {
 
         {!plan && (
           <div className="card text-center py-12">
-            <p className="text-gray-400 text-lg mb-2">📚</p>
-            <p className="text-gray-600 font-medium">No lesson plan assigned yet</p>
-            <p className="text-gray-400 text-sm mt-1">Your tutor will set one up for you soon.</p>
+            <div className="mx-auto mb-3 w-12 h-12 rounded-full bg-gray-100 text-gray-400 flex items-center justify-center">
+              <BookOpen className="icon-lg" aria-hidden />
+            </div>
+            <p className="text-base text-gray-800 font-medium">No lesson plan yet</p>
+            <p className="text-gray-500 text-sm mt-1">Your tutor will set one up for you soon.</p>
           </div>
         )}
       </main>

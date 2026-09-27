@@ -19,10 +19,14 @@ Set these in **Vercel → Project Settings → Environment Variables** for the *
 
 | Name | Value | Notes |
 |---|---|---|
-| `DATABASE_URL` | `postgresql://postgres.[ref]:[password]@aws-0-eu-west-1.pooler.supabase.com:5432/postgres` | Use the **pooled** connection (port 5432). Required for serverless. |
-| `DIRECT_URL` | Same pooled URL | For Prisma migrations during build. |
-| `JWT_SECRET` | A long random string (e.g. `openssl rand -base64 32`) | Used to sign auth tokens. **Generate a NEW one for production**, don't reuse the local dev value. |
-| `CLIENT_URL` | `https://your-app.vercel.app` | After first deploy, replace with the actual URL. Comma-separate multiple domains if needed. |
+| `DATABASE_URL` | `postgresql://postgres.[ref]:[password]@aws-0-eu-west-1.pooler.supabase.com:5432/postgres` | Supabase pooler URL. Required. |
+| `DIRECT_URL` | Same URL | Used by `prisma migrate deploy`, which runs **during every Vercel build**. Required. |
+| `JWT_SECRET` | A long random string (`openssl rand -base64 48`) | Signs auth tokens. **Generate a NEW one for production**, don't reuse the local dev value. The API won't start without it. |
+| `ANTHROPIC_API_KEY` | `sk-ant-...` | Optional. Enables "AI improve" in the sheet editor. |
+| `CLIENT_URL` | `https://redwoodscholars.co.uk` | Optional. Only needed if the frontend is served from a *different* origin than the API. The deployment's own Vercel URLs are allowed automatically. |
+| `APP_TIMEZONE` | `Europe/London` | Optional (this is the default). |
+| `SUPABASE_URL` | `https://<ref>.supabase.co` | Needed for original PDFs, lesson-pack downloads and print runs (Supabase Storage). |
+| `SUPABASE_SERVICE_ROLE_KEY` | from Supabase → Settings → API | Server-side only. Keep secret. |
 
 You can copy the values from your local `server/.env` for `DATABASE_URL` and `DIRECT_URL`. **Do not commit `.env` to git.**
 
@@ -47,7 +51,10 @@ After deploy, test:
 
 ---
 
-## 4. Reset the database to a clean production state
+## 4. (Brand-new installs only) Reset the database to a clean state
+
+> ⚠️ **The live Redwood database already has real students. Do NOT run this against it.** To change a password or add a manager there, use the safe script instead:
+> `node server/scripts/set-password.js --email someone@x.com --password "…" [--create-manager --name "Name"]`
 
 Before going live, wipe all the demo/test data and seed a real manager account.
 
@@ -82,17 +89,19 @@ After this, sign in at your Vercel URL with the credentials you just set. The ma
 If you change `server/prisma/schema.prisma`:
 
 ```bash
-# Run locally — applies migration to the Supabase DB and creates a migration file
+# Against a DEVELOPMENT database (never production): creates the migration folder
 cd server
 npx prisma migrate dev --name your-change-description
 
-# Commit the new migration file in prisma/migrations/
-git add server/prisma/migrations
+# Commit the new migration folder
+git add server/prisma/migrations prisma/schema.prisma
 git commit -m "Migration: your-change-description"
 git push
 ```
 
-Vercel doesn't run migrations during build — they're applied directly to Supabase by your local `prisma migrate dev`. The new migration file just needs to exist in the repo so future fresh DBs get it.
+On deploy, the Vercel build runs `prisma migrate deploy` before building, so pending migrations are applied to production automatically. If a migration fails, the build fails and the previous version stays live. To apply migrations by hand: `npm run db:deploy` (uses `server/.env`).
+
+Never run `prisma migrate dev`, `migrate reset` or `db push` against production.
 
 ---
 
@@ -118,6 +127,13 @@ npm run dev      # Runs server on :3001 and client on :5173
 # Open http://localhost:5173
 ```
 
+Check a running API end to end (creates and removes its own QA data):
+
+```bash
+npm run test:smoke --workspace=server                                   # local
+API_URL=https://lesson-app-client.vercel.app/api npm run test:smoke --workspace=server   # production
+```
+
 Local dev still uses the long-running Express server (`server/src/index.js`), which imports the same `app.js` that the Vercel function uses. So local and prod behave identically.
 
 ---
@@ -126,10 +142,12 @@ Local dev still uses the long-running Express server (`server/src/index.js`), wh
 
 **`Module not found: @prisma/client`** during deploy — make sure `postinstall` script in root `package.json` runs `prisma generate`. It does, but check Vercel build logs.
 
-**`tenant/user not found`** when calling the API — Supabase project paused. Open the Supabase dashboard and click "Restore project."
+**`tenant/user not found`** / `ENOTFOUND` when calling the API — the Supabase project is paused (the free tier pauses after about a week of inactivity). Open the Supabase dashboard and click "Restore project". **For production, upgrade Supabase to Pro** so it never pauses and gets daily backups.
 
-**`function timeout`** on long requests (e.g. saving a 50-item lesson plan) — bump `maxDuration` in `vercel.json` (max 60 on Hobby tier, 300 on Pro).
+**`function timeout`** — `maxDuration` in `vercel.json` is 60s (the Hobby maximum). Only "AI improve" gets close to that.
 
-**Frontend loads but API returns HTML** — check that `vercel.json` has the `functions` block and `api/[...path].js` exists. Without these, Vercel serves the SPA index for `/api/*` routes.
+**Frontend loads but API returns HTML** — check that `vercel.json` has the `functions` block for `api/index.js` and the `/api/(.*)` → `/api` rewrite. Without these, Vercel serves the SPA index for `/api/*` routes.
+
+**Build fails at `prisma migrate deploy`** — `DIRECT_URL` is missing or wrong in Vercel env, the database is paused, or a migration conflicts with existing data. The error in the build log names the migration.
 
 **Auth fails after deploy** — `JWT_SECRET` mismatch. If you set it after the first deploy, redeploy. Existing tokens become invalid (users need to sign in again).

@@ -1,97 +1,52 @@
 # Redwood Scholars Portal
 
-A full-stack tutoring platform for Redwood Scholars Tuition. Includes a marketing site, role-based dashboards (manager / tutor / student), an interactive worksheet library, lesson scheduling, and live whiteboard sessions.
+A full-stack tutoring platform for Redwood Scholars Tuition. It includes a marketing site, role-based dashboards (manager / tutor / student), a library of ~1,200 interactive worksheets, lesson plans with recurring sessions and automatic carryover, auto-marking with follow-up rules, and live 1:1 lessons where tutor and student work on the same sheet.
 
-## Documentation
+## Start here
 
-- **[DEPLOYMENT.md](./DEPLOYMENT.md)** — How to deploy to Vercel, set environment variables, reset the database, and run migrations
-- **[MANAGER_GUIDE.md](./MANAGER_GUIDE.md)** — Day-to-day usage for the centre manager: adding tutors and students, building lesson plans, running live sessions
-
----
+| Doc | For |
+|---|---|
+| **[INTEGRATION_GUIDE.md](./INTEGRATION_GUIDE.md)** | Developers or Claude Code picking this up: architecture, setup, API reference, how to integrate with the main website |
+| [DEPLOYMENT.md](./DEPLOYMENT.md) | Deploying to Vercel + Supabase, migrations, operations, troubleshooting |
+| [MANAGER_GUIDE.md](./MANAGER_GUIDE.md) | Day-to-day use by the centre manager |
+| `HANDOVER_SECRETS.md` | Real credentials. **Not in git**, sent separately |
 
 ## Tech stack
 
-- **Frontend:** React + Vite + Tailwind, FullCalendar, tldraw (live whiteboard)
-- **Backend:** Express + Prisma
-- **Database:** PostgreSQL on Supabase
-- **Hosting:** Vercel (frontend as static + API as serverless)
+- **Frontend:** React 18 + Vite + Tailwind, React Router, FullCalendar, dnd-kit
+- **Backend:** Node + Express 4 + Prisma 5
+- **Database:** PostgreSQL (Supabase)
+- **Hosting:** Vercel (static SPA + one serverless function for the API)
+- **Optional:** Anthropic API for the "AI improve" worksheet tool
 
----
-
-## Local development
+## Quick start
 
 ```bash
-# Install
 npm install
-
-# Configure environment
-cp server/.env.example server/.env
-# Edit server/.env with your DATABASE_URL, DIRECT_URL, JWT_SECRET
-
-# First-time DB setup
-cd server && npx prisma migrate dev && cd ..
-
-# Run both client and server
-npm run dev
+cp server/.env.example server/.env        # fill in (see INTEGRATION_GUIDE.md §4)
+npx prisma generate --schema=server/prisma/schema.prisma
+npm run dev                               # API http://localhost:3001 · app http://localhost:5173
 ```
-
-- Client: http://localhost:5173
-- API: http://localhost:3001
-- Prisma Studio: `cd server && npx prisma studio`
-
----
-
-## Project structure
-
-```
-.
-├── api/                    # Vercel serverless function (wraps Express)
-├── client/                 # React + Vite frontend
-│   └── src/
-│       ├── components/
-│       │   ├── marketing/  # Public landing page
-│       │   ├── manager/    # Manager dashboard, builders
-│       │   ├── tutor/      # Tutor dashboard
-│       │   ├── student/    # Student dashboard, sheet view
-│       │   └── shared/     # Logo, modals, navbar, today, sessions, live session
-│       └── lib/api.js      # Axios client
-├── server/                 # Express + Prisma backend
-│   ├── src/
-│   │   ├── app.js          # Express app (no listen — used by both local + Vercel)
-│   │   ├── index.js        # Local dev entrypoint (calls listen)
-│   │   ├── routes/         # auth, users, sheets, lesson-plans, sessions, ...
-│   │   └── middleware/
-│   ├── prisma/             # Schema + migrations
-│   └── scripts/
-│       ├── reset-db.js     # Wipe demo data, seed fresh manager
-│       ├── auto-migrate.js # Convert PDFs → sheets (used during initial setup)
-│       └── ...
-├── vercel.json             # Vercel build/route config
-└── DEPLOYMENT.md           # Production deployment instructions
-```
-
----
 
 ## Common scripts
 
 ```bash
-npm run dev              # Local dev (server + client)
-npm run build            # Build client only
-npm run vercel-build     # Build for Vercel deployment (prisma generate + client)
-npm run db:migrate       # Run a new schema migration
-npm run db:reset         # Wipe demo data + seed fresh manager (CLI prompt)
-npm run db:studio        # Open Prisma Studio for the DB
+npm run dev                                # API + client in watch mode
+npm run build                              # client production build
+npm run db:deploy                          # apply Prisma migrations to DATABASE_URL
+npm run db:studio                          # browse the database
+npm run test:smoke --workspace=server      # end-to-end API test (API must be running)
+npm run qa:seed --workspace=server         # throwaway QA logins for manual testing
+npm run qa:cleanup --workspace=server      # remove QA data
 ```
 
----
+## Project structure
 
-## Deploy
+```
+api/        Vercel serverless entry (re-exports the Express app)
+client/     React SPA
+server/     Express API, Prisma schema + migrations, scripts
+vercel.json Build, rewrites, function timeout
+```
 
-See [DEPLOYMENT.md](./DEPLOYMENT.md) for the full Vercel deployment walkthrough.
-
-In short:
-1. Push to GitHub
-2. Import into Vercel
-3. Set env vars (`DATABASE_URL`, `DIRECT_URL`, `JWT_SECRET`, `CLIENT_URL`)
-4. Deploy
-5. Run `node server/scripts/reset-db.js --email ... --password ...` locally to seed your production manager account
+See [INTEGRATION_GUIDE.md](./INTEGRATION_GUIDE.md) §2 for the full layout.

@@ -16,12 +16,11 @@
     "@fullcalendar/interaction": "^6.1.20",
     "@fullcalendar/react": "^6.1.20",
     "@fullcalendar/timegrid": "^6.1.20",
-    "@tldraw/sync": "^5.0.0",
     "axios": "^1.6.8",
+    "lucide-react": "^1.48.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-router-dom": "^6.22.2",
-    "tldraw": "^5.0.0"
+    "react-router-dom": "^6.22.2"
   },
   "devDependencies": {
     "@types/react": "^18.2.55",

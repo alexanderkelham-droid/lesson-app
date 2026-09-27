@@ -1,9 +1,10 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   DndContext,
   closestCenter,
   PointerSensor,
+  KeyboardSensor,
   useSensor,
   useSensors
 } from '@dnd-kit/core'
@@ -11,7 +12,8 @@ import {
   SortableContext,
   verticalListSortingStrategy,
   useSortable,
-  arrayMove
+  arrayMove,
+  sortableKeyboardCoordinates
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import FullCalendar from '@fullcalendar/react'
@@ -20,26 +22,34 @@ import interactionPlugin from '@fullcalendar/interaction'
 import { useAuth } from '../../context/AuthContext'
 import Navbar from '../shared/Navbar'
 import LoadingSpinner from '../shared/LoadingSpinner'
-import ConfirmModal from '../shared/ConfirmModal'
+import ConfirmModal, { useConfirm } from '../shared/ConfirmModal'
+import SheetHistoryBadge from '../shared/SheetHistoryBadge'
+import useSheetHistory, { repeatConfirmOptions } from '../../hooks/useSheetHistory'
 import SheetPreviewModal from '../shared/SheetPreviewModal'
 import api from '../../lib/api'
+import { localDateKey } from '../../lib/dates'
+import PrintPackMenu from '../print/PrintPackMenu'
+import AiPlanModal from '../shared/AiPlanModal'
+import {
+  AlertTriangle, ArrowLeft, BookOpen, CalendarDays, Check, ChevronRight, ClipboardList, Clock,
+  Eye, FileText, GripVertical, Pin, Plus, RotateCcw, Search, Sparkles, StickyNote, X
+} from 'lucide-react'
 
-const difficultyLabel = { 1: 'Beginner', 2: 'Elementary', 3: 'Intermediate', 4: 'Advanced', 5: 'Expert' }
-const difficultyColor = { 1: 'text-green-600', 2: 'text-blue-600', 3: 'text-yellow-600', 4: 'text-orange-600', 5: 'text-red-600' }
+const levelLabel = n => (n ? `Level ${n}` : '')
 const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
 const CUSTOM_TYPES = [
   { value: 'ixl_maths',   label: 'IXL Maths' },
   { value: 'ixl_english', label: 'IXL English' },
   { value: 'paper',       label: 'Paper activity' },
-  { value: 'other',       label: 'Other / custom' },
+  { value: 'other',       label: 'Custom task' },
 ]
 
 function customTypeLabel(type) {
-  return CUSTOM_TYPES.find(t => t.value === type)?.label || 'Custom'
+  return CUSTOM_TYPES.find(t => t.value === type)?.label || 'Custom task'
 }
 
-// Map DB day (0=Mon…6=Sun) → JS day (0=Sun…6=Sat)
+// Map DB day (0=Mon..6=Sun) to JS day (0=Sun..6=Sat)
 function dbDayToJsDay(dbDay) {
   return dbDay === 6 ? 0 : dbDay + 1
 }
@@ -51,7 +61,7 @@ function getNextDate(dbDay) {
   d.setHours(12, 0, 0, 0)
   const diff = (jsDay - d.getDay() + 7) % 7
   d.setDate(d.getDate() + (diff === 0 ? 0 : diff))
-  return d.toISOString().split('T')[0]
+  return localDateKey(d)
 }
 
 function SessionsSchedule({ sessions, planItems, newSessionDate, setNewSessionDate, onCreate, onDelete, onCarryOver, saving }) {
@@ -68,35 +78,37 @@ function SessionsSchedule({ sessions, planItems, newSessionDate, setNewSessionDa
 
   return (
     <div className="card">
-      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-        <h2 className="font-semibold text-gray-900">Schedule ({sorted.length} session{sorted.length === 1 ? '' : 's'})</h2>
-        <p className="text-xs text-gray-400">Plan items into specific sessions</p>
+      <div className="flex items-end justify-between mb-4 flex-wrap gap-2">
+        <div>
+          <h2 className="section-title">Schedule</h2>
+          <p className="text-xs text-gray-500 mt-0.5">{sorted.length} session{sorted.length === 1 ? '' : 's'} · plan items into specific sessions</p>
+        </div>
       </div>
 
       {/* New session form */}
-      <div className="flex flex-wrap items-end gap-2 mb-4 bg-gray-50 border border-gray-200 rounded-lg p-3">
+      <div className="card-muted p-3 flex flex-wrap items-end gap-2 mb-4">
         <div className="flex-1 min-w-[140px]">
-          <label className="text-xs font-medium text-gray-600">Schedule a new session</label>
+          <label className="label text-xs">Schedule a new session</label>
           <input
             type="date"
             value={newSessionDate}
             onChange={e => setNewSessionDate(e.target.value)}
-            min={new Date().toISOString().split('T')[0]}
-            className="input text-sm mt-0.5"
+            min={localDateKey()}
+            className="input"
           />
         </div>
         <button
           onClick={onCreate}
           disabled={!newSessionDate || saving}
-          className="btn-primary text-sm py-2 disabled:opacity-50"
+          className="btn-primary"
         >
-          {saving ? 'Adding...' : '+ Add session'}
+          {saving ? 'Adding…' : <><Plus className="icon" aria-hidden /> Add session</>}
         </button>
       </div>
 
       {/* Sessions list */}
       {sorted.length === 0 ? (
-        <p className="text-xs text-gray-400 italic">No sessions scheduled yet. Add one above.</p>
+        <p className="text-sm text-gray-500 text-center py-4">No sessions scheduled yet. Add one above.</p>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {sorted.map(s => {
@@ -109,28 +121,30 @@ function SessionsSchedule({ sessions, planItems, newSessionDate, setNewSessionDa
               <div
                 key={s.id}
                 className={`border rounded-lg p-3 ${
-                  attended ? 'bg-green-50 border-green-200'
-                  : past ? 'bg-amber-50 border-amber-200'
+                  attended ? 'bg-white border-forest-100'
+                  : past ? 'bg-amber-50/50 border-amber-200'
                   : 'bg-white border-gray-200'
                 }`}
               >
                 <div className="flex items-start justify-between gap-2">
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-sm font-semibold text-gray-900">
                       {date.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' })}
                     </p>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-gray-500 flex items-center gap-1.5 mt-0.5">
+                      <Clock className="w-3 h-3" aria-hidden />
                       {date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
-                      {attended && <span className="ml-2 text-green-600 font-semibold">· Attended</span>}
-                      {!attended && past && <span className="ml-2 text-amber-700 font-semibold">· Past</span>}
+                      {attended && <span className="badge-success ml-1">Attended</span>}
+                      {!attended && past && <span className="badge-warning ml-1">Past</span>}
                     </p>
                   </div>
                   <button
                     onClick={() => onDelete(s.id)}
-                    className="text-gray-400 hover:text-red-500 text-sm"
+                    className="p-1 -m-1 rounded-md text-gray-400 hover:text-red-700 hover:bg-red-50"
                     title="Delete session"
+                    aria-label="Delete session"
                   >
-                    ×
+                    <X className="icon" aria-hidden />
                   </button>
                 </div>
                 <div className="mt-2 text-xs text-gray-600">
@@ -138,9 +152,9 @@ function SessionsSchedule({ sessions, planItems, newSessionDate, setNewSessionDa
                     <span className="italic text-gray-400">No items assigned</span>
                   ) : (
                     <>
-                      <span className="font-medium">{total - incomplete}/{total}</span> done
+                      <span className="font-medium tabular-nums">{total - incomplete}/{total}</span> done
                       {incomplete > 0 && (
-                        <span className="text-amber-600 ml-2">{incomplete} incomplete</span>
+                        <span className="text-amber-800 ml-2">{incomplete} incomplete</span>
                       )}
                     </>
                   )}
@@ -148,9 +162,10 @@ function SessionsSchedule({ sessions, planItems, newSessionDate, setNewSessionDa
                 {past && incomplete > 0 && (
                   <button
                     onClick={() => onCarryOver(s.id)}
-                    className="mt-2 w-full text-xs bg-amber-100 hover:bg-amber-200 text-amber-800 font-medium py-1 rounded transition-colors"
+                    className="mt-2 w-full inline-flex items-center justify-center gap-1.5 text-xs bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 font-medium py-1.5 rounded-md transition-colors"
                   >
-                    ↻ Carry {incomplete} item{incomplete === 1 ? '' : 's'} to next session
+                    <RotateCcw className="icon-sm" aria-hidden />
+                    Carry {incomplete} item{incomplete === 1 ? '' : 's'} to next session
                   </button>
                 )}
               </div>
@@ -161,8 +176,8 @@ function SessionsSchedule({ sessions, planItems, newSessionDate, setNewSessionDa
 
       {/* Unscheduled badge */}
       {unscheduledCount > 0 && (
-        <p className="text-xs text-gray-500 mt-3">
-          <span className="inline-block w-2 h-2 bg-gray-400 rounded-full mr-1.5"></span>
+        <p className="text-xs text-gray-500 mt-3 flex items-center gap-1.5">
+          <span className="inline-block w-1.5 h-1.5 bg-gray-400 rounded-full" aria-hidden></span>
           {unscheduledCount} item{unscheduledCount === 1 ? '' : 's'} not yet assigned to a session
         </p>
       )}
@@ -173,6 +188,13 @@ function SessionsSchedule({ sessions, planItems, newSessionDate, setNewSessionDa
 function CustomItemModal({ open, onClose, onAdd }) {
   const [customType, setCustomType] = useState('ixl_maths')
   const [customTitle, setCustomTitle] = useState('')
+
+  useEffect(() => {
+    if (!open) return
+    const onKey = e => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [open, onClose])
 
   if (!open) return null
 
@@ -189,22 +211,26 @@ function CustomItemModal({ open, onClose, onAdd }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 p-4" onClick={onClose}>
       <form
         onSubmit={submit}
-        className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="custom-task-title"
+        className="modal-panel w-full max-w-md p-6"
         onClick={e => e.stopPropagation()}
       >
-        <h2 className="text-lg font-bold text-gray-900 mb-1">Add a custom item</h2>
+        <h2 id="custom-task-title" className="section-title mb-1">Add a custom task</h2>
         <p className="text-sm text-gray-500 mb-4">Use this for IXL practice, a paper activity, or any task not in the sheet library.</p>
 
         <div className="space-y-3">
           <div>
-            <label className="text-xs font-medium text-gray-600">Type</label>
+            <label className="label" htmlFor="custom-task-type">Type</label>
             <select
+              id="custom-task-type"
               value={customType}
               onChange={e => setCustomType(e.target.value)}
-              className="input text-sm mt-0.5"
+              className="input"
             >
               {CUSTOM_TYPES.map(t => (
                 <option key={t.value} value={t.value}>{t.label}</option>
@@ -212,13 +238,14 @@ function CustomItemModal({ open, onClose, onAdd }) {
             </select>
           </div>
           <div>
-            <label className="text-xs font-medium text-gray-600">Title <span className="text-gray-400 font-normal">(optional)</span></label>
+            <label className="label" htmlFor="custom-task-name">Title <span className="text-gray-400 font-normal">(optional)</span></label>
             <input
+              id="custom-task-name"
               type="text"
               value={customTitle}
               onChange={e => setCustomTitle(e.target.value)}
               placeholder={defaultTitle}
-              className="input text-sm mt-0.5"
+              className="input"
               autoFocus
             />
           </div>
@@ -238,20 +265,27 @@ function SortablePlanItem({ item, sessions = [], onRemove, onUpdate, onPreview }
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }
   const [showDetails, setShowDetails] = useState(!!item.scheduledDate || !!item.tutorNotes)
 
+  const iconBtn = 'p-1.5 rounded-md text-gray-400 hover:text-gray-900 hover:bg-gray-100 transition-colors flex-shrink-0'
+
   return (
-    <div ref={setNodeRef} style={style} className="bg-white border border-gray-200 rounded-xl shadow-sm">
-      <div className="flex items-center gap-3 p-3">
-        <button {...attributes} {...listeners} className="text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing touch-none px-1">
-          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-            <path d="M7 2a2 2 0 1 0 .001 4.001A2 2 0 0 0 7 2zm0 6a2 2 0 1 0 .001 4.001A2 2 0 0 0 7 8zm0 6a2 2 0 1 0 .001 4.001A2 2 0 0 0 7 14zm6-8a2 2 0 1 0-.001-4.001A2 2 0 0 0 13 6zm0 2a2 2 0 1 0 .001 4.001A2 2 0 0 0 13 8zm0 6a2 2 0 1 0 .001 4.001A2 2 0 0 0 13 14z" />
-          </svg>
+    <div ref={setNodeRef} style={style} className="bg-white border border-gray-200 rounded-xl shadow-card">
+      <div className="flex items-center gap-2 p-3">
+        <button
+          {...attributes}
+          {...listeners}
+          className="text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing touch-none p-0.5"
+          aria-label="Drag to reorder"
+          title="Drag to reorder"
+        >
+          <GripVertical className="icon-lg" aria-hidden />
         </button>
 
         <div className="flex-1 min-w-0">
           <p className="font-medium text-sm text-gray-900 truncate">
             {item.customTitle ? (
-              <span className="inline-flex items-center gap-1">
-                <span className="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-semibold">
+              <span className="inline-flex items-center gap-1.5">
+                <span className="badge">
+                  <ClipboardList className="icon-sm text-gray-500" aria-hidden />
                   {customTypeLabel(item.customType)}
                 </span>
                 {item.customTitle}
@@ -260,25 +294,26 @@ function SortablePlanItem({ item, sessions = [], onRemove, onUpdate, onPreview }
               item.sheet?.title || item.sheetTitle
             )}
           </p>
-          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+          <div className="flex items-center gap-2 mt-1 flex-wrap">
             {!item.customTitle && (
               <>
                 <span className="text-xs text-gray-500">{item.sheet?.subject || item.subject}</span>
                 <span className="text-gray-300">·</span>
-                <span className={`text-xs font-medium ${difficultyColor[item.sheet?.difficultyLevel || item.difficultyLevel]}`}>
-                  {difficultyLabel[item.sheet?.difficultyLevel || item.difficultyLevel]}
+                <span className="text-xs text-gray-500">
+                  {levelLabel(item.sheet?.difficultyLevel || item.difficultyLevel)}
                 </span>
               </>
             )}
             {item.status === 'completed' && (
-              <span className="text-xs text-green-600 font-semibold">✓ Completed</span>
+              <span className="badge-success"><Check className="icon-sm" aria-hidden /> Completed</span>
             )}
             {item.sessionId && (() => {
               const s = sessions.find(x => x.id === item.sessionId)
               if (!s) return null
               return (
-                <span className="text-xs text-brand-700 bg-brand-50 px-1.5 py-0.5 rounded">
-                  📅 {new Date(s.scheduledAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                <span className="badge-accent">
+                  <CalendarDays className="icon-sm" aria-hidden />
+                  {new Date(s.scheduledAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
                 </span>
               )
             })()}
@@ -286,8 +321,8 @@ function SortablePlanItem({ item, sessions = [], onRemove, onUpdate, onPreview }
               <span className="text-xs text-gray-400 italic">Unscheduled</span>
             )}
             {item.tutorNotes && (
-              <span className="text-xs text-gray-600 italic" title={item.tutorNotes}>
-                📝 has note
+              <span className="inline-flex items-center gap-1 text-xs text-gray-500" title={item.tutorNotes}>
+                <StickyNote className="w-3 h-3" aria-hidden /> Has note
               </span>
             )}
           </div>
@@ -296,42 +331,42 @@ function SortablePlanItem({ item, sessions = [], onRemove, onUpdate, onPreview }
         {!item.customTitle && (
           <button
             onClick={() => onPreview(item.sheetId)}
-            className="text-gray-400 hover:text-brand-600 transition-colors flex-shrink-0"
+            className={iconBtn}
             title="Preview sheet"
+            aria-label="Preview sheet"
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-            </svg>
+            <Eye className="icon" aria-hidden />
           </button>
         )}
 
         <button
           onClick={() => setShowDetails(s => !s)}
-          className={`text-gray-400 hover:text-brand-600 transition-colors flex-shrink-0 ${showDetails ? 'text-brand-600' : ''}`}
+          className={`${iconBtn} ${showDetails ? 'text-redwood-700 bg-redwood-50 hover:bg-redwood-50 hover:text-redwood-700' : ''}`}
           title="Schedule and notes"
+          aria-label="Schedule and notes"
+          aria-expanded={showDetails}
         >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" transform="rotate(45 12 12)" />
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3M3 11h18M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-          </svg>
+          <CalendarDays className="icon" aria-hidden />
         </button>
 
-        <button onClick={() => onRemove(item.id)} className="text-gray-400 hover:text-red-500 transition-colors flex-shrink-0" title="Remove from plan">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
+        <button
+          onClick={() => onRemove(item.id)}
+          className="p-1.5 rounded-md text-gray-400 hover:text-red-700 hover:bg-red-50 transition-colors flex-shrink-0"
+          title="Remove from plan"
+          aria-label="Remove from plan"
+        >
+          <X className="icon" aria-hidden />
         </button>
       </div>
 
       {showDetails && (
-        <div className="border-t border-gray-100 px-3 py-3 bg-gray-50 space-y-2">
+        <div className="border-t border-gray-100 px-3 py-3 bg-gray-50 rounded-b-xl space-y-3">
           <div>
-            <label className="text-xs font-medium text-gray-600">Assign to session</label>
+            <label className="label text-xs">Assign to session</label>
             <select
               value={item.sessionId || ''}
               onChange={e => onUpdate(item.id, { sessionId: e.target.value ? parseInt(e.target.value) : null })}
-              className="input text-xs py-1.5 mt-0.5"
+              className="input text-xs py-1.5"
             >
               <option value="">Unscheduled (no session yet)</option>
               {sessions
@@ -347,21 +382,21 @@ function SortablePlanItem({ item, sessions = [], onRemove, onUpdate, onPreview }
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <div>
-              <label className="text-xs font-medium text-gray-600">Due date</label>
+              <label className="label text-xs">Due date</label>
               <input
                 type="date"
                 value={item.dueDate ? item.dueDate.split('T')[0] : ''}
                 onChange={e => onUpdate(item.id, { dueDate: e.target.value || null })}
-                className="input text-xs py-1.5 mt-0.5"
+                className="input text-xs py-1.5"
               />
             </div>
           </div>
           <div>
-            <label className="text-xs font-medium text-gray-600">Tutor notes</label>
+            <label className="label text-xs">Tutor notes</label>
             <textarea
               value={item.tutorNotes || ''}
               onChange={e => onUpdate(item.id, { tutorNotes: e.target.value })}
-              className="input text-xs py-1.5 mt-0.5 resize-none"
+              className="input text-xs py-1.5 resize-none"
               rows={2}
               placeholder="e.g. Revisit denominators next session"
             />
@@ -372,13 +407,7 @@ function SortablePlanItem({ item, sessions = [], onRemove, onUpdate, onPreview }
   )
 }
 
-const SUBJECT_ICONS = {
-  Mathematics: '📐',
-  English: '📝',
-  Science: '🔬'
-}
-
-function SheetLibrary({ sheets, planItems, onAdd, onPreview, search, onSearchChange }) {
+function SheetLibrary({ sheets, planItems, history = {}, onAdd, onPreview, search, onSearchChange }) {
   const [expanded, setExpanded] = useState({})
 
   // Filter sheets by search
@@ -390,7 +419,7 @@ function SheetLibrary({ sheets, planItems, onAdd, onPreview, search, onSearchCha
            s.subject.toLowerCase().includes(q)
   })
 
-  // Build tree: subject → topic → sheets
+  // Build tree: subject > topic > sheets
   const tree = useMemo(() => {
     const map = {}
     filtered.forEach(sheet => {
@@ -401,7 +430,6 @@ function SheetLibrary({ sheets, planItems, onAdd, onPreview, search, onSearchCha
     // Sort subjects, topics, and sheets within each topic
     const sorted = Object.keys(map).sort().map(subject => ({
       subject,
-      icon: SUBJECT_ICONS[subject] || '📄',
       topics: Object.keys(map[subject]).sort().map(topic => ({
         topic,
         sheets: map[subject][topic].sort((a, b) =>
@@ -434,18 +462,22 @@ function SheetLibrary({ sheets, planItems, onAdd, onPreview, search, onSearchCha
 
   return (
     <div className="card sticky top-20 p-4">
-      <h2 className="font-semibold text-gray-900 mb-3">Sheet Library</h2>
+      <h2 className="section-title mb-3">Sheet library</h2>
 
-      <input
-        value={search}
-        onChange={e => onSearchChange(e.target.value)}
-        className="input mb-3"
-        placeholder="Search sheets…"
-      />
+      <div className="relative mb-3">
+        <Search className="icon absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" aria-hidden />
+        <input
+          value={search}
+          onChange={e => onSearchChange(e.target.value)}
+          className="input pl-9"
+          placeholder="Search sheets"
+          aria-label="Search sheets"
+        />
+      </div>
 
       <div className="max-h-[calc(100vh-240px)] overflow-y-auto pr-1 -mr-1">
         {tree.length === 0 ? (
-          <p className="text-center text-gray-400 text-sm py-6">No sheets match your search.</p>
+          <p className="text-center text-gray-500 text-sm py-6">No sheets match your search.</p>
         ) : (
           <div className="space-y-1">
             {tree.map(subjectNode => {
@@ -461,13 +493,14 @@ function SheetLibrary({ sheets, planItems, onAdd, onPreview, search, onSearchCha
                   {/* Subject folder */}
                   <button
                     onClick={() => toggleExpand(subjectKey)}
+                    aria-expanded={!!isSubjectOpen}
                     className="w-full flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-gray-50 transition-colors text-left"
                   >
-                    <span className="text-base flex-shrink-0">{subjectNode.icon}</span>
-                    <span className={`text-xs flex-shrink-0 transition-transform ${isSubjectOpen ? 'rotate-90' : ''}`}>▶</span>
+                    <ChevronRight className={`icon text-gray-400 transition-transform ${isSubjectOpen ? 'rotate-90' : ''}`} aria-hidden />
+                    <BookOpen className="icon text-gray-400" aria-hidden />
                     <span className="font-semibold text-sm text-gray-800 flex-1 truncate">{subjectNode.subject}</span>
-                    <span className="text-xs text-gray-400 flex-shrink-0">
-                      {subjectAddedCount > 0 && <span className="text-green-600 mr-1">{subjectAddedCount} added</span>}
+                    <span className="text-xs text-gray-400 flex-shrink-0 tabular-nums">
+                      {subjectAddedCount > 0 && <span className="text-forest-700 mr-1">{subjectAddedCount} added</span>}
                       {subjectSheetCount}
                     </span>
                   </button>
@@ -485,53 +518,59 @@ function SheetLibrary({ sheets, planItems, onAdd, onPreview, search, onSearchCha
                             {/* Topic folder */}
                             <button
                               onClick={() => toggleExpand(topicKey)}
+                              aria-expanded={!!isTopicOpen}
                               className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-gray-50 transition-colors text-left"
                             >
-                              <span className={`text-xs text-gray-400 flex-shrink-0 transition-transform ${isTopicOpen ? 'rotate-90' : ''}`}>▶</span>
+                              <ChevronRight className={`icon-sm text-gray-400 transition-transform ${isTopicOpen ? 'rotate-90' : ''}`} aria-hidden />
                               <span className="text-xs font-medium text-gray-600 flex-1 truncate">{topicNode.topic}</span>
-                              <span className="text-xs text-gray-400 flex-shrink-0">
-                                {topicAddedCount > 0 && <span className="text-green-600 mr-1">{topicAddedCount}</span>}
+                              <span className="text-xs text-gray-400 flex-shrink-0 tabular-nums">
+                                {topicAddedCount > 0 && <span className="text-forest-700 mr-1">{topicAddedCount}</span>}
                                 {topicNode.sheets.length}
                               </span>
                             </button>
 
                             {/* Sheets within topic */}
                             {isTopicOpen && (
-                              <div className="ml-4 space-y-1 py-1">
+                              <div className="ml-4 space-y-0.5 py-1">
                                 {topicNode.sheets.map(sheet => {
                                   const inPlan = planItems.some(i => i.sheetId === sheet.id)
+                                  const h = history[sheet.id]
+                                  const showHistory = h && (h.completed > 0 || (h.planned && !inPlan))
                                   return (
                                     <div
                                       key={sheet.id}
                                       className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-xs transition-colors ${
                                         inPlan
-                                          ? 'bg-green-50 text-green-700'
-                                          : 'hover:bg-brand-50 text-gray-700 hover:text-brand-700'
+                                          ? 'bg-forest-50 text-forest-700'
+                                          : 'hover:bg-redwood-50 text-gray-700 hover:text-redwood-700'
                                       }`}
                                     >
                                       <button
                                         onClick={() => !inPlan && onAdd(sheet)}
                                         disabled={inPlan}
                                         className="flex items-center gap-2 flex-1 min-w-0 text-left disabled:cursor-default cursor-pointer"
+                                        title={inPlan ? 'Already in plan' : 'Add to plan'}
                                       >
                                         <span className="flex-shrink-0">
                                           {inPlan ? (
-                                            <span className="text-green-500">✓</span>
+                                            <Check className="icon-sm text-forest-600" aria-label="In plan" />
                                           ) : (
-                                            <span className="text-gray-300">○</span>
+                                            <Plus className="icon-sm text-gray-400" aria-hidden />
                                           )}
                                         </span>
                                         <span className="flex-1 truncate">{sheet.title}</span>
+                                        {showHistory && <SheetHistoryBadge history={h} />}
+                                        {sheet.needsReview && (
+                                          <span className="badge-warning text-[10px] px-1.5 py-0 flex-shrink-0" title="Digital version may have errors. Check it, or print the original">Review</span>
+                                        )}
                                       </button>
                                       <button
                                         onClick={() => onPreview(sheet.id)}
-                                        className="flex-shrink-0 text-gray-300 hover:text-brand-600 transition-colors p-0.5"
+                                        className="flex-shrink-0 text-gray-400 hover:text-gray-900 transition-colors p-0.5 rounded"
                                         title="Preview sheet"
+                                        aria-label={`Preview ${sheet.title}`}
                                       >
-                                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                        </svg>
+                                        <Eye className="icon-sm" aria-hidden />
                                       </button>
                                     </div>
                                   )
@@ -550,7 +589,7 @@ function SheetLibrary({ sheets, planItems, onAdd, onPreview, search, onSearchCha
         )}
 
         {search && totalFiltered > 0 && (
-          <p className="text-xs text-gray-400 text-center mt-3 pt-2 border-t border-gray-100">
+          <p className="text-xs text-gray-500 text-center mt-3 pt-2 border-t border-gray-100">
             {totalFiltered} sheet{totalFiltered !== 1 ? 's' : ''} found
           </p>
         )}
@@ -588,6 +627,11 @@ export default function LessonPlanBuilder() {
 
   // Plan items
   const [planItems, setPlanItems] = useState([])
+  const originalSheetIds = useRef(new Set()) // sheets this saved plan already had when loaded
+
+  // Styled confirms and a small notice line
+  const [confirm, confirmModal] = useConfirm()
+  const [notice, setNotice] = useState('')
 
   // Library
   const [sheets, setSheets]     = useState([])
@@ -602,7 +646,32 @@ export default function LessonPlanBuilder() {
   const [error, setError]       = useState('')
   const [success, setSuccess]   = useState('')
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
+  // ── Unsaved-changes tracking ──
+  // Snapshot of the editable state once loading finishes; anything different
+  // afterwards counts as unsaved.
+  const baseline = useRef(null)
+  const editableState = JSON.stringify({ title, studentId, tutorId, status, lessonDayOfWeek, lessonTime, studentNotes, selectedDate,
+    items: planItems.map(i => [i.id, i.sessionId ?? null, i.tutorNotes ?? '', i.scheduledDate ?? null, i.dueDate ?? null]) })
+  const isDirty = baseline.current !== null && baseline.current !== editableState && !success
+  const [baselinePending, setBaselinePending] = useState(false)
+  useEffect(() => {
+    // Take the snapshot one render after loading, once derived defaults settle
+    if (!baselinePending) return
+    baseline.current = editableState
+    setBaselinePending(false)
+  }, [baselinePending, editableState])
+  useEffect(() => {
+    if (!isDirty) return
+    const warn = e => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [isDirty])
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  )
+  const [notFound, setNotFound] = useState(false)
 
   // Selected student's lesson days
   const selectedStudent = useMemo(
@@ -651,6 +720,10 @@ export default function LessonPlanBuilder() {
       .catch(() => setPreviousPlans([]))
   }, [studentId, planId])
 
+  // The student's sheet memory across all their plans. Saved plans use their
+  // own id; a new plan borrows one of the student's other plans (any works).
+  const [sheetHistory] = useSheetHistory(planId || previousPlans[0]?.id || null)
+
   async function reloadSessions() {
     if (!planId) return
     try {
@@ -677,42 +750,54 @@ export default function LessonPlanBuilder() {
 
   async function createSession() {
     if (!planId) {
-      alert('Save the plan first, then add sessions.')
+      setError('Save the plan first, then add sessions.')
       return
     }
     if (!newSessionDate) return
     setSavingSession(true)
     try {
       // Default time: take the lesson day's typical hour or just 15:00
-      const dt = new Date(newSessionDate + 'T15:00:00')
+      // Use the plan's lesson time (UK local, from this browser) or 15:00
+      const dt = new Date(`${newSessionDate}T${lessonTime || '15:00'}:00`)
       await api.post('/sessions', { lessonPlanId: parseInt(planId), scheduledAt: dt.toISOString() })
       setNewSessionDate('')
       await reloadSessions()
     } catch (e) {
-      alert(e.response?.data?.error || 'Failed to create session')
+      setError(e.response?.data?.error || 'Failed to create session')
     } finally {
       setSavingSession(false)
     }
   }
 
   async function deleteSession(sessionIdToDelete) {
-    if (!confirm('Delete this session? Items assigned to it will move back to unscheduled.')) return
+    const ok = await confirm({
+      title: 'Delete this session?',
+      message: 'Items assigned to it will move back to unscheduled.',
+      confirmLabel: 'Delete session',
+      destructive: true,
+    })
+    if (!ok) return
     try {
       await api.delete(`/sessions/${sessionIdToDelete}`)
       await reloadSessions()
     } catch (e) {
-      alert(e.response?.data?.error || 'Failed to delete')
+      setError(e.response?.data?.error || 'Failed to delete')
     }
   }
 
   async function triggerCarryover(sessionIdToCarry) {
-    if (!confirm('Move all incomplete items from this session to the next future session?')) return
+    const ok = await confirm({
+      title: 'Move work to the next lesson?',
+      message: 'All unfinished items from this session will be copied into the next upcoming session.',
+      confirmLabel: 'Move work',
+    })
+    if (!ok) return
     try {
       const res = await api.post(`/sessions/${sessionIdToCarry}/carryover`)
       await reloadSessions()
-      alert(`${res.data.carriedOver} item${res.data.carriedOver === 1 ? '' : 's'} carried over.`)
+      setNotice(`${res.data.carriedOver} item${res.data.carriedOver === 1 ? '' : 's'} carried over to the next session.`)
     } catch (e) {
-      alert(e.response?.data?.error || 'Carryover failed')
+      setError(e.response?.data?.error || 'Carryover failed')
     }
   }
 
@@ -741,6 +826,8 @@ export default function LessonPlanBuilder() {
         setSheets(sheetsRes.data)
         setStudents(usersRes.data.filter(u => u.role === 'student'))
         setTutors(usersRes.data.filter(u => u.role === 'tutor'))
+        // Tutors always own the plans they create
+        if (isNew && user?.role === 'tutor') setTutorId(String(user.id))
 
         if (!isNew) {
           const planRes = await api.get(`/lesson-plans/${planId}`)
@@ -752,6 +839,7 @@ export default function LessonPlanBuilder() {
           setStatus(plan.status)
           setLessonDayOfWeek(plan.lessonDayOfWeek !== null && plan.lessonDayOfWeek !== undefined ? String(plan.lessonDayOfWeek) : '')
           setLessonTime(plan.lessonTime || '15:00')
+          originalSheetIds.current = new Set(plan.items.map(i => i.sheetId).filter(Boolean))
           setPlanItems(plan.items.sort((a, b) => a.sequenceOrder - b.sequenceOrder).map(i => ({
             id: i.id,
             sheetId: i.sheetId,
@@ -768,9 +856,11 @@ export default function LessonPlanBuilder() {
           setSessions(plan.sessions || [])
         }
       } catch (e) {
-        setError('Failed to load data')
+        if (e.response?.status === 404 || e.response?.status === 403) setNotFound(true)
+        else setError('Failed to load data')
       } finally {
         setLoading(false)
+        setBaselinePending(true)
       }
     }
     load()
@@ -806,9 +896,9 @@ export default function LessonPlanBuilder() {
       while (d <= rangeEnd) {
         evts.push({
           id: `day-${dbDay}-${d.toISOString()}`,
-          start: d.toISOString().split('T')[0],
+          start: localDateKey(d),
           display: 'background',
-          backgroundColor: '#e0e7ff'
+          backgroundColor: '#fdf2f0' // redwood-50
         })
         d.setDate(d.getDate() + 7)
       }
@@ -820,8 +910,8 @@ export default function LessonPlanBuilder() {
         id: 'selected',
         start: selectedDate,
         title: 'Lesson',
-        backgroundColor: '#4f46e5',
-        borderColor: '#4f46e5',
+        backgroundColor: '#a8341a', // redwood-600
+        borderColor: '#a8341a',
         textColor: '#fff'
       })
     }
@@ -852,6 +942,17 @@ export default function LessonPlanBuilder() {
     }])
   }
 
+  // Ask before re-setting a sheet the student has done or already has planned
+  async function requestAddSheet(sheet) {
+    if (planItems.find(i => i.sheetId === sheet.id)) return
+    const h = sheetHistory[sheet.id]
+    // "Planned" only because this saved plan had it (and it was removed here) isn't a repeat
+    const onlyThisPlan = h && !h.completed && originalSheetIds.current.has(sheet.id) && (h.timesSet || 0) <= 1
+    const opts = onlyThisPlan ? null : repeatConfirmOptions(h, selectedStudent?.name)
+    if (opts && !(await confirm(opts))) return
+    addSheet(sheet)
+  }
+
   function addCustomItem({ customType, customTitle }) {
     setPlanItems(prev => [...prev, {
       id: `temp-custom-${Date.now()}`,
@@ -867,6 +968,25 @@ export default function LessonPlanBuilder() {
   }
 
   const [showCustomItem, setShowCustomItem] = useState(false)
+  const [showAiPlan, setShowAiPlan] = useState(false)
+
+  // AI suggestions go into the local plan; the tutor saves as usual
+  function applyAiPlan(assignments) {
+    const stamp = Date.now()
+    const added = assignments.flatMap((a, ai) => a.items.map((it, ii) => ({
+      id: `temp-ai-${stamp}-${ai}-${ii}`,
+      sheetId: it.sheetId || null,
+      sheet: it.sheet || undefined,
+      customTitle: it.sheetId ? undefined : it.customTitle,
+      customType: it.sheetId ? undefined : it.customType,
+      scheduledDate: null,
+      tutorNotes: it.tutorNotes || '',
+      sessionId: a.sessionId || null,
+      status: 'available',
+    })))
+    setPlanItems(prev => [...prev, ...added])
+    setSuccess('')
+  }
 
   const [confirmRemove, setConfirmRemove] = useState(null) // { id, title, completed }
   const [previewSheetId, setPreviewSheetId] = useState(null)
@@ -939,10 +1059,23 @@ export default function LessonPlanBuilder() {
 
       const pid = plan.id || parseInt(planId)
 
+      // A brand-new plan had no sessions while items were being added, so
+      // put its unassigned items into the first upcoming session.
+      let defaultSessionId = null
+      if (isNew) {
+        try {
+          const fresh = await api.get(`/lesson-plans/${pid}`)
+          const upcoming = (fresh.data.sessions || [])
+            .filter(s => !s.attendedAt && new Date(s.scheduledAt).getTime() >= Date.now())
+            .sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt))
+          defaultSessionId = upcoming[0]?.id || null
+        } catch { /* leave unscheduled */ }
+      }
+
       // Diff existing vs current planItems by ID.
-      // - Items with a numeric ID that still exist locally → PUT to update
-      // - Items with a temp string ID → POST to create
-      // - Items in DB but not in local state → DELETE (skip silently if FK fails — they have student responses we don't want to nuke)
+      // - Items with a numeric ID that still exist locally: PUT to update
+      // - Items with a temp string ID: POST to create
+      // - Items in DB but not in local state: DELETE (skip silently if FK fails — they have student responses we don't want to nuke)
       const localById = new Map()
       const tempItems = []
       for (const it of planItems) {
@@ -974,7 +1107,8 @@ export default function LessonPlanBuilder() {
           tutorNotes: item.tutorNotes ?? null,
           sessionId: item.sessionId ?? null,
           sequenceOrder: i + 1,
-          status: item.status === 'completed' ? 'completed' : 'available'
+          // Preserve progress (in_progress / completed); only unlock locked items
+          status: item.status && item.status !== 'locked' ? item.status : 'available'
         })
       }
 
@@ -989,17 +1123,19 @@ export default function LessonPlanBuilder() {
           scheduledDate: item.scheduledDate || undefined,
           dueDate: item.dueDate || undefined,
           tutorNotes: item.tutorNotes || undefined,
-          sessionId: item.sessionId || undefined,
+          sessionId: item.sessionId || defaultSessionId || undefined,
+          sequenceOrder: i + 1,
           status: 'available'
         })
       }
 
       if (skippedDeletes.length > 0) {
-        setSuccess(`Saved — ${skippedDeletes.length} item${skippedDeletes.length === 1 ? '' : 's'} kept because the student has already completed them.`)
+        setSuccess(`Saved — ${skippedDeletes.length} item${skippedDeletes.length === 1 ? '' : 's'} kept because the student has already worked on ${skippedDeletes.length === 1 ? 'it' : 'them'}.`)
+        setTimeout(() => navigate(`${basePath}/students/${studentId}`), 2500)
+      } else {
+        setSuccess('Lesson plan saved.')
+        setTimeout(() => navigate(`${basePath}/students/${studentId}`), 1000)
       }
-
-      setSuccess('Lesson plan saved!')
-      setTimeout(() => navigate(`${basePath}/students/${studentId}`), 1000)
     } catch (e) {
       setError(e.response?.data?.error || 'Save failed')
     } finally {
@@ -1007,26 +1143,72 @@ export default function LessonPlanBuilder() {
     }
   }
 
+  async function leave(to) {
+    if (isDirty) {
+      const ok = await confirm({
+        title: 'Leave without saving?',
+        message: 'You have unsaved changes to this lesson plan.',
+        confirmLabel: 'Leave without saving',
+        cancelLabel: 'Keep editing',
+        destructive: true,
+      })
+      if (!ok) return
+    }
+    baseline.current = editableState // don't prompt again from beforeunload
+    navigate(to)
+  }
+
+  const aiModal = showAiPlan && (
+    <AiPlanModal planId={planId} onClose={() => setShowAiPlan(false)} onApply={applyAiPlan} applyLabel="Add to plan" />
+  )
+
   if (loading) return <><Navbar /><LoadingSpinner /></>
+  if (notFound) return (
+    <>
+      <Navbar title="Lesson Plan" />
+      <div className="max-w-md mx-auto px-4 py-12">
+        <div className="card text-center">
+          <div className="w-12 h-12 rounded-full bg-gray-100 text-gray-400 flex items-center justify-center mx-auto mb-3">
+            <FileText className="icon-lg" aria-hidden />
+          </div>
+          <p className="text-gray-900 font-medium mb-1">Lesson plan not found</p>
+          <p className="text-sm text-gray-500 mb-4">It may have been deleted, or it belongs to another tutor.</p>
+          <button onClick={() => navigate(basePath)} className="btn-secondary">
+            <ArrowLeft className="icon" aria-hidden /> Back to dashboard
+          </button>
+        </div>
+      </div>
+    </>
+  )
 
   return (
     <>
       <Navbar title={isNew ? 'New Lesson Plan' : 'Edit Lesson Plan'} />
-      <main className="max-w-6xl mx-auto px-4 py-6">
-        <button onClick={() => navigate(-1)} className="text-sm text-gray-500 hover:text-gray-800 mb-4 flex items-center gap-1">
-          ← Back
+      <main className="max-w-6xl mx-auto px-4 py-8">
+        <button onClick={() => leave(-1)} className="btn-ghost btn-sm -ml-2.5 mb-3">
+          <ArrowLeft className="icon-sm" aria-hidden /> Back
         </button>
+
+        <div className="mb-6 flex items-end justify-between gap-3 flex-wrap">
+          <div>
+            <h1 className="page-title">{isNew ? 'New lesson plan' : 'Edit lesson plan'}</h1>
+            <p className="text-sm text-gray-500 mt-1">
+              {selectedStudent ? `For ${selectedStudent.name}` : 'Choose a student, then add sheets from the library.'}
+            </p>
+          </div>
+          {isDirty && <span className="badge-warning">Unsaved changes</span>}
+        </div>
 
         <div className={`flex flex-col lg:flex-row gap-6 ${saving ? 'pointer-events-none opacity-60' : ''}`}>
           {/* Left: Plan config + items */}
-          <div className="flex-1 space-y-5">
+          <div className="flex-1 min-w-0 space-y-5">
             <div className="card">
-              <h2 className="font-semibold text-gray-900 mb-4">{isNew ? 'Create Lesson Plan' : 'Edit Plan'}</h2>
+              <h2 className="section-title mb-4">Plan details</h2>
 
               <div className="space-y-4">
                 <div>
-                  <label className="label">Plan Title *</label>
-                  <input value={title} onChange={e => setTitle(e.target.value)} className="input" placeholder="e.g. Alice's Maths Programme" />
+                  <label className="label">Plan title *</label>
+                  <input value={title} onChange={e => setTitle(e.target.value)} onFocus={e => isNew && e.target.select()} maxLength={200} className="input" placeholder="e.g. Alice's Maths Programme" />
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
@@ -1038,7 +1220,7 @@ export default function LessonPlanBuilder() {
                   </div>
                   <div>
                     <label className="label">Tutor *</label>
-                    <select value={tutorId} onChange={e => setTutorId(e.target.value)} className="input">
+                    <select value={tutorId} onChange={e => setTutorId(e.target.value)} className="input" disabled={user?.role === 'tutor'}>
                       <option value="">Select tutor…</option>
                       {tutors.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                     </select>
@@ -1068,7 +1250,7 @@ export default function LessonPlanBuilder() {
                 {/* Lesson day + calendar scheduling */}
                 {studentId && (
                   <div className="border-t border-gray-100 pt-4">
-                    <label className="label mb-2">Schedule Lesson</label>
+                    <label className="label mb-2">Schedule lesson</label>
 
                     {studentDays.length > 0 ? (
                       <>
@@ -1081,43 +1263,49 @@ export default function LessonPlanBuilder() {
                               key={d}
                               type="button"
                               onClick={() => handleDaySelect(d)}
-                              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                              aria-pressed={String(d) === lessonDayOfWeek}
+                              className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
                                 String(d) === lessonDayOfWeek
-                                  ? 'bg-brand-600 text-white'
-                                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                  ? 'bg-redwood-600 border-redwood-600 text-white'
+                                  : 'bg-white border-gray-300 text-gray-600 hover:border-gray-400'
                               }`}
                             >
                               {DAY_NAMES[d]}
                             </button>
                           ))}
-                          <span className="text-xs text-gray-400 ml-2">at</span>
+                          <span className="text-xs text-gray-500 ml-1">at</span>
                           <input
                             type="time"
                             value={lessonTime}
                             onChange={e => setLessonTime(e.target.value)}
                             className="input text-sm py-1.5 w-28"
                             title="What time does this lesson start each week?"
+                            aria-label="Lesson start time"
                           />
-                          <span className="text-xs text-gray-400">every week</span>
+                          <span className="text-xs text-gray-500">every week</span>
                         </div>
                       </>
                     ) : (
-                      <p className="text-xs text-yellow-600 mb-3">
-                        No lesson days set for this student. Pick a date from the calendar, or
-                        <button
-                          type="button"
-                          onClick={() => navigate(`${basePath}/students/${studentId}`)}
-                          className="text-brand-600 hover:underline ml-1"
-                        >
-                          edit their profile
-                        </button>.
+                      <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3 flex items-start gap-2">
+                        <AlertTriangle className="icon-sm mt-0.5" aria-hidden />
+                        <span>
+                          No lesson days set for this student. Pick a date from the calendar, or
+                          <button
+                            type="button"
+                            onClick={() => navigate(`${basePath}/students/${studentId}`)}
+                            className="link font-medium ml-1"
+                          >
+                            edit their profile
+                          </button>.
+                        </span>
                       </p>
                     )}
 
                     {selectedDate && (
-                      <div className="mb-3 flex items-center gap-2">
+                      <div className="mb-3 flex items-center gap-2 flex-wrap">
                         <span className="text-sm text-gray-600">Selected:</span>
-                        <span className="text-sm font-semibold text-brand-700">
+                        <span className="badge-accent text-sm">
+                          <CalendarDays className="icon-sm" aria-hidden />
                           {new Date(selectedDate + 'T12:00:00').toLocaleDateString('en-GB', {
                             weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
                           })}
@@ -1125,14 +1313,14 @@ export default function LessonPlanBuilder() {
                         <button
                           type="button"
                           onClick={() => { setSelectedDate(''); setLessonDayOfWeek('') }}
-                          className="text-xs text-gray-400 hover:text-red-500 ml-1"
+                          className="btn-ghost btn-sm"
                         >
-                          clear
+                          <X className="icon-sm" aria-hidden /> Clear
                         </button>
                       </div>
                     )}
 
-                    <div className="border border-gray-200 rounded-xl overflow-hidden">
+                    <div className="border border-gray-200 rounded-xl overflow-hidden p-2">
                       <FullCalendar
                         plugins={[dayGridPlugin, interactionPlugin]}
                         initialView="dayGridMonth"
@@ -1151,7 +1339,7 @@ export default function LessonPlanBuilder() {
                       />
                     </div>
                     {studentDays.length > 0 && (
-                      <p className="text-xs text-gray-400 mt-2">
+                      <p className="text-xs text-gray-500 mt-2">
                         Highlighted dates are {selectedStudent?.name}'s scheduled lesson days
                       </p>
                     )}
@@ -1162,16 +1350,17 @@ export default function LessonPlanBuilder() {
 
             {/* Previous plans for this student (reference) */}
             {previousPlans.length > 0 && (
-              <div className="card bg-gray-50 border-dashed">
+              <div className="card-muted">
                 <button
                   onClick={() => setPreviousExpanded(s => !s)}
+                  aria-expanded={previousExpanded}
                   className="w-full flex items-center justify-between gap-2 text-left"
                 >
-                  <h2 className="font-semibold text-gray-700 text-sm flex items-center gap-2">
-                    <span className={`text-xs transition-transform ${previousExpanded ? 'rotate-90' : ''}`}>▶</span>
+                  <h2 className="font-semibold text-gray-800 text-sm flex items-center gap-2">
+                    <ChevronRight className={`icon text-gray-400 transition-transform ${previousExpanded ? 'rotate-90' : ''}`} aria-hidden />
                     Previous lesson plans ({previousPlans.length})
                   </h2>
-                  <span className="text-xs text-gray-400">Click items to copy across</span>
+                  <span className="text-xs text-gray-500">Click items to copy across</span>
                 </button>
 
                 {previousExpanded && (
@@ -1181,8 +1370,8 @@ export default function LessonPlanBuilder() {
                       return (
                         <div key={prev.id} className="bg-white rounded-lg border border-gray-200 p-3">
                           <div className="flex items-center justify-between mb-2 flex-wrap gap-1">
-                            <p className="text-xs font-semibold text-gray-800">{prev.title}</p>
-                            <span className="text-[10px] text-gray-400">
+                            <p className="text-sm font-medium text-gray-900">{prev.title}</p>
+                            <span className="text-xs text-gray-500">
                               {new Date(prev.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} ·
                               <span className="capitalize ml-1">{prev.status}</span>
                             </span>
@@ -1190,7 +1379,7 @@ export default function LessonPlanBuilder() {
                           {prevItems.length === 0 ? (
                             <p className="text-xs text-gray-400 italic">No items</p>
                           ) : (
-                            <div className="space-y-1">
+                            <div className="space-y-0.5">
                               {prevItems.map(it => {
                                 const alreadyAdded = it.sheetId && planItems.some(i => i.sheetId === it.sheetId)
                                 const title = it.customTitle || it.sheet?.title || 'Untitled'
@@ -1201,18 +1390,20 @@ export default function LessonPlanBuilder() {
                                     key={it.id}
                                     onClick={() => !alreadyAdded && copyItemFromPrevious(it)}
                                     disabled={alreadyAdded}
-                                    className={`w-full text-left px-2 py-1.5 rounded text-xs flex items-center gap-2 transition-colors ${
-                                      alreadyAdded ? 'bg-green-50 text-green-700 cursor-default'
-                                      : 'hover:bg-brand-50 text-gray-700'
+                                    className={`w-full text-left px-2 py-1.5 rounded-md text-xs flex items-center gap-2 transition-colors ${
+                                      alreadyAdded ? 'bg-forest-50 text-forest-700 cursor-default'
+                                      : 'hover:bg-redwood-50 hover:text-redwood-700 text-gray-700'
                                     }`}
                                   >
                                     <span className="flex-shrink-0">
-                                      {alreadyAdded ? '✓' : '+'}
+                                      {alreadyAdded
+                                        ? <Check className="icon-sm" aria-label="Already added" />
+                                        : <Plus className="icon-sm text-gray-400" aria-hidden />}
                                     </span>
                                     <span className="flex-1 truncate">{title}</span>
                                     {isCompleted && resp?.score != null && (
-                                      <span className={`flex-shrink-0 ${resp.score >= 70 ? 'text-green-600' : 'text-red-500'}`}>
-                                        {resp.score}%
+                                      <span className={`flex-shrink-0 font-medium tabular-nums ${Math.round(resp.score) >= 70 ? 'text-forest-700' : Math.round(resp.score) >= 40 ? 'text-amber-700' : 'text-red-700'}`}>
+                                        {Math.round(resp.score)}%
                                       </span>
                                     )}
                                   </button>
@@ -1248,16 +1439,29 @@ export default function LessonPlanBuilder() {
             )}
 
             <div className="card">
-              <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
-                <h2 className="font-semibold text-gray-900">Plan Items ({planItems.length})</h2>
-                <div className="flex items-center gap-3">
+              <div className="flex items-end justify-between mb-3 flex-wrap gap-2">
+                <div>
+                  <h2 className="section-title">Plan items</h2>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    {planItems.length} item{planItems.length === 1 ? '' : 's'}<span className="hidden sm:inline"> · drag to reorder</span>
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {!isNew && (
+                    <button
+                      onClick={() => setShowAiPlan(true)}
+                      className="btn-secondary btn-sm"
+                      title="Suggest the next lessons from this student's history"
+                    >
+                      <Sparkles className="icon-sm" aria-hidden /> Plan with AI
+                    </button>
+                  )}
                   <button
                     onClick={() => setShowCustomItem(true)}
-                    className="text-xs text-brand-700 hover:bg-brand-50 px-2 py-1 rounded-md border border-brand-200 font-medium"
+                    className="btn-secondary btn-sm"
                   >
-                    + Custom item
+                    <Plus className="icon-sm" aria-hidden /> Custom task
                   </button>
-                  <p className="text-xs text-gray-400 hidden sm:block">Drag to reorder</p>
                 </div>
               </div>
               {/* Next-session hint */}
@@ -1268,21 +1472,29 @@ export default function LessonPlanBuilder() {
                 const dateLabel = d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
                 const timeLabel = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
                 return (
-                  <p className="text-xs text-brand-700 bg-brand-50 px-3 py-1.5 rounded mb-3">
-                    📌 New items will be added to the next session: <strong>{dateLabel} at {timeLabel}</strong>. You can move them with the calendar icon on each item.
+                  <p className="text-xs text-gray-700 bg-cream/60 border border-gray-200 px-3 py-2 rounded-lg mb-3 flex items-start gap-2">
+                    <Pin className="icon-sm mt-0.5 text-redwood-700" aria-hidden />
+                    <span>New items will be added to the next session: <strong className="text-gray-900">{dateLabel} at {timeLabel}</strong>. You can move them with the calendar icon on each item.</span>
                   </p>
                 )
               })()}
               {!nextSessionId && (lessonDayOfWeek === '' || !lessonTime) && (
-                <p className="text-xs text-amber-700 bg-amber-50 px-3 py-1.5 rounded mb-3">
-                  📌 Set a lesson day and time above so new items auto-land in the next session.
+                <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 px-3 py-2 rounded-lg mb-3 flex items-start gap-2">
+                  <Pin className="icon-sm mt-0.5" aria-hidden />
+                  <span>Set a lesson day and time above so new items auto-land in the next session.</span>
                 </p>
               )}
 
               {planItems.length === 0 ? (
-                <div className="text-center py-10 border-2 border-dashed border-gray-200 rounded-xl text-gray-400">
-                  <p className="text-3xl mb-2">📋</p>
-                  <p className="text-sm">Add sheets from the library on the right</p>
+                <div className="text-center py-10 border border-dashed border-gray-300 rounded-xl">
+                  <div className="w-12 h-12 rounded-full bg-gray-100 text-gray-400 flex items-center justify-center mx-auto mb-3">
+                    <ClipboardList className="icon-lg" aria-hidden />
+                  </div>
+                  <p className="font-medium text-gray-900">No items yet</p>
+                  <p className="text-sm text-gray-500 mt-1 mb-4">Add sheets from the library, or add a custom task.</p>
+                  <button onClick={() => setShowCustomItem(true)} className="btn-secondary btn-sm">
+                    <Plus className="icon-sm" aria-hidden /> Custom task
+                  </button>
                 </div>
               ) : (
                 <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
@@ -1304,12 +1516,30 @@ export default function LessonPlanBuilder() {
               )}
             </div>
 
-            {error && <div className="bg-red-50 text-red-700 text-sm px-4 py-3 rounded-lg border border-red-200">{error}</div>}
-            {success && <div className="bg-green-50 text-green-700 text-sm px-4 py-3 rounded-lg border border-green-200">{success}</div>}
+            {error && (
+              <div className="bg-red-50 text-red-700 text-sm px-4 py-3 rounded-lg border border-red-100 flex items-start gap-2">
+                <AlertTriangle className="icon mt-0.5" aria-hidden /> <span>{error}</span>
+              </div>
+            )}
+            {notice && !error && !success && (
+              <div role="status" className="bg-forest-50 text-forest-700 text-sm px-4 py-3 rounded-lg border border-forest-100 flex items-start gap-2">
+                <Check className="icon mt-0.5" aria-hidden /> <span>{notice}</span>
+              </div>
+            )}
+            {success && (
+              <div className="bg-forest-50 text-forest-700 text-sm px-4 py-3 rounded-lg border border-forest-100 flex items-start gap-2">
+                <Check className="icon mt-0.5" aria-hidden /> <span>{success}</span>
+              </div>
+            )}
 
             <button onClick={handleSave} disabled={saving} className="btn-primary w-full py-3 text-base">
-              {saving ? 'Saving…' : isNew ? 'Create Lesson Plan' : 'Save Changes'}
+              {saving ? 'Saving…' : isNew ? 'Create lesson plan' : 'Save changes'}
             </button>
+            {!isNew && (
+              <div className="flex items-center justify-center gap-2 text-sm text-gray-500">
+                {isDirty ? <span>Save your changes, then print the lesson pack.</span> : <PrintPackMenu planId={planId} />}
+              </div>
+            )}
           </div>
 
           {/* Right: Sheet library */}
@@ -1317,7 +1547,8 @@ export default function LessonPlanBuilder() {
             <SheetLibrary
               sheets={sheets}
               planItems={planItems}
-              onAdd={addSheet}
+              history={sheetHistory}
+              onAdd={requestAddSheet}
               onPreview={setPreviewSheetId}
               search={search}
               onSearchChange={setSearch}
@@ -1336,11 +1567,13 @@ export default function LessonPlanBuilder() {
         sheetId={previewSheetId}
         onClose={() => setPreviewSheetId(null)}
         onAdd={previewSheetId && !planItems.some(i => i.sheetId === previewSheetId)
-          ? (sheet) => addSheet(sheet)
+          ? (sheet) => requestAddSheet(sheet)
           : null}
         alreadyAdded={planItems.some(i => i.sheetId === previewSheetId)}
       />
 
+      {aiModal}
+      {confirmModal}
       <ConfirmModal
         open={!!confirmRemove}
         title="Remove this sheet?"
