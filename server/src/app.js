@@ -66,7 +66,15 @@ app.use('/api/follow-up-rules', followUpRuleRoutes);
 app.use('/api/sessions', sessionRoutes);
 app.use('/api/groups', groupRoutes);
 
-app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+// Health + which optional features are configured (booleans only, never values)
+app.get('/api/health', (req, res) => res.json({
+  status: 'ok',
+  features: {
+    ai: !!process.env.ANTHROPIC_API_KEY,
+    originalsStorage: !!(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY),
+    localWorksheets: !!process.env.WORKSHEETS_DIR,
+  },
+}));
 
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
 
