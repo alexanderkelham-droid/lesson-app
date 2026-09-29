@@ -20,7 +20,11 @@ function presentSheet(sheet, user) {
   const { sourceFile, pdfUrl, digitisedBy, ...rest } = sheet;
   if (!isStaff(user)) return rest;
   // Digital version not yet checked/redone → worth reviewing before use
-  if (digitisedBy !== undefined) rest.needsReview = digitisedBy === 'text' || digitisedBy === 'vision_review';
+  if (digitisedBy !== undefined) {
+    rest.needsReview = digitisedBy === 'text' || digitisedBy === 'vision_review';
+    // No digital questions yet — use the original PDF
+    rest.printOnly = digitisedBy === 'print_only';
+  }
   // pdfUrl is an internal storage reference — clients just get hasOriginal
   return { ...rest, hasOriginal: !!(pdfUrl || sourceFile) };
 }

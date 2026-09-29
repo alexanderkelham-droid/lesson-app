@@ -560,6 +560,9 @@ function SheetLibrary({ sheets, planItems, history = {}, onAdd, onPreview, searc
                                         </span>
                                         <span className="flex-1 truncate">{sheet.title}</span>
                                         {showHistory && <SheetHistoryBadge history={h} />}
+                                        {sheet.printOnly && (
+                                          <span className="badge text-[10px] px-1.5 py-0 flex-shrink-0" title="No online version yet: print the original PDF">Paper</span>
+                                        )}
                                         {sheet.needsReview && (
                                           <span className="badge-warning text-[10px] px-1.5 py-0 flex-shrink-0" title="Digital version may have errors. Check it, or print the original">Review</span>
                                         )}

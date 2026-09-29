@@ -166,6 +166,9 @@ export default function SheetsList() {
                               <FileText className="icon-sm text-gray-400" aria-hidden />
                               <span className="truncate">{sheet.title}</span>
                               <span className="text-xs text-gray-500 flex-shrink-0 tabular-nums">L{sheet.difficultyLevel}</span>
+                              {sheet.printOnly && (
+                                <span className="badge flex-shrink-0" title="No online version yet: print the original PDF">Paper only</span>
+                              )}
                               {sheet.needsReview && (
                                 <span className="badge-warning flex-shrink-0" title="The digital version may have errors — check it, or print the original PDF">
                                   Needs review

@@ -36,6 +36,10 @@ export default function SheetPreviewModal({ sheetId, onClose, onAdd, alreadyAdde
   }, [sheetId, view, sheet?.hasOriginal])
 
   useEffect(() => { setView(initialView) }, [sheetId, initialView])
+  // Paper-only sheets have no digital version yet: show the scan straight away
+  useEffect(() => {
+    if (sheet?.id === sheetId && sheet?.contentJson?.printOnly && sheet?.hasOriginal) setView('original')
+  }, [sheet, sheetId])
 
   useEffect(() => {
     if (!sheetId) return

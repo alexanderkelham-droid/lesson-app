@@ -126,6 +126,19 @@ function QuestionBody({ q, seed }) {
 export function PrintedSheet({ sheet, studentName, dateLabel, toolbarExtra }) {
   const content = sheet.contentJson || {}
   const questions = asList(content.questions)
+  if (content.printOnly) {
+    // No digital version yet: point to the original instead of an empty page
+    return (
+      <section className="paper">
+        <div className="sheet-brand"><span>Redwood Scholars</span><span>{sheet.subject}{sheet.topic ? ` · ${sheet.topic}` : ''}</span></div>
+        <h2 className="sheet-title">{sheet.title}</h2>
+        <p className="muted" style={{ marginTop: 8 }}>
+          Paper worksheet: print the original PDF for this one (it is included in "Download original sheets").
+        </p>
+        {toolbarExtra && <div className="no-print" style={{ marginTop: 8 }}>{toolbarExtra}</div>}
+      </section>
+    )
+  }
   return (
     <section className="paper">
       <div className="sheet-brand">

@@ -198,7 +198,7 @@ function metadataFor(rel, existingTitles) {
 function requestParams(data, hint, { noPassage = false } = {}) {
   return {
     model: MODEL,
-    max_tokens: 16000,
+    max_tokens: 32000,
     system: SYSTEM,
     tools: [TOOL],
     tool_choice: { type: 'tool', name: 'save_worksheet' },
@@ -241,10 +241,10 @@ async function buildQueue({ job, idsArg, pilot, report, progress }) {
   if (idsArg || job === 'redo' || job === 'all') {
     const where = idsArg
       ? { id: { in: idsArg.split(',').map(Number) } }
-      : { digitisedBy: 'text', sourceFile: { not: null } };
+      : { digitisedBy: { in: ['text', 'print_only'] }, sourceFile: { not: null }, NOT: { sourceFile: { contains: 'Hand Writing' } } };
     const sheets = await prisma.sheet.findMany({
       where,
-      select: { id: true, title: true, subject: true, topic: true, sourceFile: true,
+      select: { id: true, title: true, subject: true, topic: true, sourceFile: true, digitisedBy: true,
         _count: { select: { studentResponses: true, lessonPlanItems: true } } },
       orderBy: { id: 'asc' },
     });
@@ -259,7 +259,7 @@ async function buildQueue({ job, idsArg, pilot, report, progress }) {
     const wanted = new Set(['image_only', 'parse_fail', 'missing', 'duplicate_title', 'unreadable']);
     const known = new Set((await prisma.sheet.findMany({ where: { sourceFile: { not: null } }, select: { sourceFile: true } })).map(s => s.sourceFile));
     imports = report.unimportedPdfs
-      .filter(u => wanted.has(u.category) && u.path.toLowerCase().endsWith('.pdf') && !known.has(u.path))
+      .filter(u => wanted.has(u.category) && u.path.toLowerCase().endsWith('.pdf') && !known.has(u.path) && !u.path.includes('Hand Writing'))
       .map(u => ({ kind: 'import', key: `file:${u.path}`, rel: u.path, pages: u.pages || 1 }));
   }
 
@@ -278,6 +278,7 @@ async function buildQueue({ job, idsArg, pilot, report, progress }) {
   // → other text sheets → imports (reading/comprehension first, then the rest)
   const rank = t => {
     if (t.kind === 'import') return /comprehension|comprenhension|reading/i.test(t.rel) ? 60 : 70;
+    if (t.sheet.digitisedBy === 'print_only') return /comprehension|comprenhension|reading/i.test(t.rel) ? 60 : 70;
     const s = info[t.sheet.id] || {};
     if ((s.reasons || []).some(x => /answer key(s)? (is|are) wrong|wrong answer/i.test(x))) return 0;
     if (t.sheet._count.lessonPlanItems > 0) return 10;
@@ -469,4 +470,8 @@ async function main() {
   log(`Done: ${totals.ok} ok · ${totals.failed} failed · ${totals.questions} questions · tokens in ${totals.input.toLocaleString()} / out ${totals.output.toLocaleString()} · ≈ $${spent.toFixed(2)}${totals.ok ? ` ($${(spent / totals.ok).toFixed(3)}/sheet)` : ''}`);
 }
 
-main().catch(e => { console.error(e.message); process.exitCode = 1; }).finally(() => prisma.$disconnect());
+if (require.main === module) {
+  main().catch(e => { console.error(e.message); process.exitCode = 1; }).finally(() => prisma.$disconnect());
+}
+
+module.exports = { metadataFor };

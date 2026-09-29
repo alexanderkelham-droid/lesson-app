@@ -6,7 +6,7 @@ import LoadingSpinner from '../shared/LoadingSpinner'
 import api from '../../lib/api'
 import { isQuestionCorrect } from '../../lib/marking'
 import SheetIntro, { ImageHint } from '../shared/SheetIntro'
-import { ArrowLeft, ArrowRight, BookOpen, Check, ChevronDown, ChevronUp, CircleCheck, CircleX, Hourglass, PenLine, Sparkles } from 'lucide-react'
+import { ArrowLeft, ArrowRight, BookOpen, Check, ChevronDown, ChevronUp, CircleCheck, CircleX, Hourglass, PenLine, Sparkles, FileText } from 'lucide-react'
 
 // Score colour rule: >=70 forest, 40-69 amber, <40 red (rounded first)
 function scoreTone(score) {
@@ -381,6 +381,23 @@ export default function SheetView() {
   const missing = questions.map((q, i) => isAnswered(q) ? null : i + 1).filter(Boolean)
 
   if (loading) return <><Navbar /><LoadingSpinner /></>
+
+  // Paper worksheet with no online version yet
+  if (sheet?.contentJson?.printOnly) return (
+    <>
+      <Navbar title={sheet.title} />
+      <main className="max-w-2xl mx-auto px-4 py-10">
+        <div className="card text-center">
+          <div className="mx-auto mb-3 w-12 h-12 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center">
+            <FileText className="icon-lg" aria-hidden />
+          </div>
+          <h1 className="section-title mb-1">{sheet.title}</h1>
+          <p className="text-gray-600">This is a paper worksheet. Your tutor will give you a printed copy to work on.</p>
+          <button onClick={() => navigate('/student')} className="btn-secondary mt-5">Back to my lessons</button>
+        </div>
+      </main>
+    </>
+  )
 
   if (error) return (
     <>

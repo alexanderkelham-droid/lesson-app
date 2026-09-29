@@ -21,7 +21,7 @@ Planning principles:
 - Build sensible progressions (e.g. equivalent fractions → adding fractions with same denominator → different denominators). Respect the student's age and subject focus; balance Maths/English if focus is "both".
 - Mix: usually one main teaching sheet, one practice/consolidation sheet, a short warm-up or retrieval task, and optionally an IXL or paper task. Fit the lesson length (estimate minutes; a typical sheet takes 10–20 min).
 - Items under "ALREADY PLANNED / UNSCHEDULED" are already in the plan — never suggest them again; plan AROUND them (they will be done first). Don't repeat sheets already completed with a good score. Re-setting a sheet the student did poorly on is fine if you say why. Unfinished carried-over work should normally come first.
-- Prefer library sheets that are NOT marked [review] (those may have digital errors); if you do pick one, mention the tutor should use the printed original.
+- Prefer library sheets that are NOT marked [review] (those may have digital errors); if you do pick one, mention the tutor should use the printed original. Sheets marked [paper only] have no online version: fine for in-centre lessons (printed), mention it in the reason.
 - Only use sheet ids from the library list. If nothing suitable exists, use a custom item (IXL skill, paper activity) and describe it precisely.
 - Follow any tutor instructions exactly (they override these defaults).
 - Never use emojis or decorative symbols; plain text only.
@@ -135,7 +135,8 @@ async function libraryCatalogue() {
   for (const s of sheets) {
     const head = `${s.subject} › ${s.topic}`;
     if (head !== current) { lines.push(`\n## ${head}`); current = head; }
-    const review = s.digitisedBy === 'text' || s.digitisedBy === 'vision_review' ? ' [review]' : '';
+    const review = s.digitisedBy === 'print_only' ? ' [paper only]'
+      : s.digitisedBy === 'text' || s.digitisedBy === 'vision_review' ? ' [review]' : '';
     lines.push(`#${s.id} L${s.difficultyLevel} ${s.title}${s.sheetType !== 'worksheet' ? ` (${s.sheetType})` : ''}${review}`);
   }
   catalogueCache = { at: Date.now(), text: lines.join('\n'), ids: new Set(sheets.map(s => s.id)) };

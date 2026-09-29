@@ -1,9 +1,10 @@
+import { openOriginalPdf } from '../../lib/print'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import api from '../../lib/api'
 import LoadingSpinner from './LoadingSpinner'
 import SheetIntro, { ImageHint } from './SheetIntro'
 import { isQuestionCorrect } from '../../lib/marking'
-import { AlertCircle, BookOpen, Check, CircleCheck, CircleX, Loader2, X } from 'lucide-react'
+import { AlertCircle, BookOpen, Check, CircleCheck, CircleX, Loader2, X, FileText } from 'lucide-react'
 
 /**
  * Interactive in-session sheet. Used in the live session view.
@@ -205,6 +206,27 @@ export default function InteractiveSheet({
     )
   }
   if (!sheet) return null
+
+  if (sheet.contentJson?.printOnly) {
+    return (
+      <div className="h-full flex items-center justify-center p-8 bg-cream">
+        <div className="card text-center max-w-md">
+          <div className="mx-auto mb-3 w-12 h-12 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center">
+            <FileText className="icon-lg" aria-hidden />
+          </div>
+          <h2 className="section-title mb-1">{sheet.title}</h2>
+          <p className="text-sm text-gray-600">
+            {isTeacher ? 'This is a paper worksheet (no online version yet). Work through the printed copy together.' : 'This is a paper worksheet. Use the printed copy your tutor gives you.'}
+          </p>
+          {isTeacher && (
+            <button onClick={() => openOriginalPdf(sheet)} className="btn-secondary mt-4">
+              <FileText className="icon" aria-hidden /> Open original PDF
+            </button>
+          )}
+        </div>
+      </div>
+    )
+  }
 
   const questions = sheet.contentJson?.questions || []
 
