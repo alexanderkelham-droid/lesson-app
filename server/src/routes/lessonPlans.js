@@ -3,6 +3,7 @@ const prisma = require('../prisma');
 const { auth, requireRole } = require('../middleware/auth');
 const { ensureRecurringSessions, resetFutureSessions } = require('../lib/recurring-sessions');
 const { removeStaleCarryCopies } = require('../lib/items');
+const { carryOverIncompleteItems } = require('../lib/lessons');
 const { suggestLessons, studentContext } = require('../lib/ai-planner');
 const { sendOriginalsPack, packGroupFromPrintData } = require('../lib/originals-pack');
 const { zonedDayRange, zonedDateKey } = require('../lib/time');
@@ -562,6 +563,91 @@ router.post('/:id/process-completion', auth, async (req, res, next) => {
     });
 
     res.json({ success: true, followUpCreated: !!result, followUpItem: result });
+  } catch (err) { next(err); }
+});
+
+// POST /api/lesson-plans/:id/past-lesson
+// { scheduledAt, durationMins?, notes?, items: [{ sheetId? | customTitle+customType, done: bool, score?: 0-100, tutorNotes? }] }
+// Record a lesson that already happened (e.g. before the portal existed):
+// creates the attended session (or fills in the existing one that day),
+// adds the work done with scores, and carries anything unfinished over to
+// the next lesson, so history, sheet memory and the AI planner all see it.
+router.post('/:id/past-lesson', requireRole('manager', 'tutor'), async (req, res, next) => {
+  try {
+    const plan = await assertCanMutatePlan(req, req.params.id);
+    const scheduledAt = parseDate(req.body.scheduledAt);
+    if (!scheduledAt) return res.status(400).json({ error: 'A valid date is required' });
+    if (scheduledAt.getTime() > Date.now() + 60 * 60 * 1000) return res.status(400).json({ error: 'A past lesson can\'t be in the future' });
+    const items = Array.isArray(req.body.items) ? req.body.items : [];
+    if (!items.length) return res.status(400).json({ error: 'Add at least one thing that was done in the lesson' });
+    const durationMins = req.body.durationMins ? Number(req.body.durationMins) : null;
+    if (durationMins != null && !(Number.isInteger(durationMins) && durationMins > 0 && durationMins <= 600)) return res.status(400).json({ error: 'durationMins must be 1-600' });
+
+    // Validate items up front
+    const sheetIds = [...new Set(items.map(i => parseId(i.sheetId)).filter(Boolean))];
+    const sheets = await prisma.sheet.findMany({ where: { id: { in: sheetIds } }, select: { id: true } });
+    const known = new Set(sheets.map(s => s.id));
+    const clean = items.map((i, idx) => {
+      const sheetId = parseId(i.sheetId);
+      if (i.sheetId && !known.has(sheetId)) throw httpError(400, `Item ${idx + 1}: sheet not found`);
+      const customTitle = typeof i.customTitle === 'string' ? i.customTitle.trim().slice(0, 200) : '';
+      if (!sheetId && !customTitle) throw httpError(400, `Item ${idx + 1}: choose a sheet or type what was done`);
+      let score = null;
+      if (i.score !== undefined && i.score !== null && i.score !== '') {
+        score = Number(i.score);
+        if (!Number.isFinite(score) || score < 0 || score > 100) throw httpError(400, `Item ${idx + 1}: score must be 0-100`);
+      }
+      return {
+        sheetId: sheetId || null,
+        customTitle: sheetId ? null : customTitle,
+        customType: sheetId ? null : (['ixl_maths', 'ixl_english', 'paper', 'other'].includes(i.customType) ? i.customType : 'other'),
+        done: i.done !== false,
+        score,
+        tutorNotes: i.tutorNotes ? String(i.tutorNotes).slice(0, 1000) : null,
+      };
+    });
+
+    // Reuse a lesson already on that day (e.g. an auto-generated slot), else create one
+    const { start, end } = zonedDayRange(zonedDateKey(scheduledAt));
+    let session = await prisma.lessonSession.findFirst({
+      where: { lessonPlanId: plan.id, scheduledAt: { gte: start, lte: end } },
+      orderBy: { scheduledAt: 'asc' },
+    });
+    const notes = req.body.notes ? String(req.body.notes).slice(0, 5000) : null;
+    if (session) {
+      session = await prisma.lessonSession.update({
+        where: { id: session.id },
+        data: { attendedAt: session.attendedAt || scheduledAt, ...(durationMins && { durationMins }), ...(notes && { notes }) },
+      });
+    } else {
+      session = await prisma.lessonSession.create({
+        data: { lessonPlanId: plan.id, scheduledAt, attendedAt: scheduledAt, durationMins, notes },
+      });
+    }
+
+    const last = await prisma.lessonPlanItem.findFirst({ where: { lessonPlanId: plan.id }, orderBy: { sequenceOrder: 'desc' }, select: { sequenceOrder: true } });
+    let seq = (last?.sequenceOrder || 0) + 1;
+    for (const it of clean) {
+      const item = await prisma.lessonPlanItem.create({
+        data: {
+          lessonPlanId: plan.id, sessionId: session.id, sequenceOrder: seq++,
+          sheetId: it.sheetId, customTitle: it.customTitle, customType: it.customType,
+          status: it.done ? 'completed' : 'available', tutorNotes: it.tutorNotes,
+        },
+      });
+      // A sheet done on paper: record the result so memory, stats and the AI see it
+      if (it.done && it.sheetId) {
+        await prisma.studentResponse.create({
+          data: {
+            studentId: plan.studentId, sheetId: it.sheetId, lessonPlanItemId: item.id,
+            responsesJson: { _tutorGraded: true, _pastLesson: true }, score: it.score, completedAt: scheduledAt,
+          },
+        });
+      }
+    }
+    // Unfinished work moves on to the next lesson
+    const carriedOver = await carryOverIncompleteItems(session.id, plan.id);
+    res.status(201).json({ sessionId: session.id, added: clean.length, carriedOver });
   } catch (err) { next(err); }
 });
 

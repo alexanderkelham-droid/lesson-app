@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { ArrowRight, CalendarDays, CalendarX, Check, ChevronRight, CornerDownRight, Pencil, Plus, Printer, RotateCcw, Trash2, Users } from 'lucide-react'
+import { ArrowRight, CalendarDays, CalendarX, Check, ChevronRight, CornerDownRight, Pencil, Plus, Printer, RotateCcw, Trash2, Users, History } from 'lucide-react'
 import SheetLink from './SheetLink'
 import CancelLessonModal from './CancelLessonModal'
 import { useConfirm } from './ConfirmModal'
@@ -27,11 +27,14 @@ function scoreClass(score) {
   return s >= 70 ? 'text-forest-700' : s >= 40 ? 'text-amber-700' : 'text-red-700'
 }
 
+import PastLessonModal from './PastLessonModal'
+
 export default function SessionsPanel({ planId, planTitle, canEdit = true, onChange }) {
   const [sessions, setSessions]   = useState([])
   const [loading, setLoading]     = useState(true)
   const [error, setError]         = useState('')
   const [notice, setNotice]       = useState('')
+  const [showPast, setShowPast]   = useState(false)
   const [showAdd, setShowAdd]     = useState(false)
   const [editingId, setEditingId] = useState(null)
   const [draft, setDraft]         = useState({ scheduledAt: '', durationMins: 60, notes: '' })
@@ -200,12 +203,24 @@ export default function SessionsPanel({ planId, planTitle, canEdit = true, onCha
 
   return (
     <div className="card">
+      {showPast && (
+        <PastLessonModal
+          planId={planId}
+          onClose={() => setShowPast(false)}
+          onSaved={r => { setNotice(`Past lesson saved: ${r.added} item${r.added === 1 ? '' : 's'}${r.carriedOver ? `, ${r.carriedOver} unfinished moved to the next lesson` : ''}.`); refresh() }}
+        />
+      )}
       <div className="flex items-center justify-between mb-3">
         <h3 className="section-title">Sessions</h3>
         {canEdit && (
-          <button onClick={startAdd} className="btn-secondary btn-sm">
-            <Plus className="icon-sm" aria-hidden /> Schedule session
-          </button>
+          <div className="flex gap-2">
+            <button onClick={() => setShowPast(true)} className="btn-ghost btn-sm" title="Add a lesson that has already happened">
+              <History className="icon-sm" aria-hidden /> Record past lesson
+            </button>
+            <button onClick={startAdd} className="btn-secondary btn-sm">
+              <Plus className="icon-sm" aria-hidden /> Schedule session
+            </button>
+          </div>
         )}
       </div>
 

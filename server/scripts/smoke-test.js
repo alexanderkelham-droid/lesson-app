@@ -307,6 +307,27 @@ async function main() {
     check('confirming merges the two lessons', merge.status === 200 && merge.data.merged && merge.data.mergedInto === c2.id, merge.data);
   }
 
+  section('Recording a past lesson');
+  {
+    const when = new Date(Date.now() - 10 * 86400000); when.setUTCHours(16, 0, 0, 0);
+    const past = await T.post(`/lesson-plans/${planA.data.id}/past-lesson`, {
+      scheduledAt: when.toISOString(), durationMins: 60, notes: 'Worked hard on fractions',
+      items: [
+        { sheetId: S2.data.id, done: true, score: 80 },
+        { customTitle: 'IXL, Level G, F.2, Literary devices, 25 questions', customType: 'ixl_english', done: true },
+        { customTitle: 'Corbett Maths, nth term, Q.20-31', customType: 'paper', done: false },
+      ],
+    });
+    check('record a past lesson with scores', past.status === 201 && past.data.added === 3, past.data);
+    check('unfinished work from it carries to the next lesson', past.data.carriedOver === 1, past.data);
+    const h2 = (await T.get(`/lesson-plans/${planA.data.id}/sheet-history`)).data;
+    check('sheet memory sees the past lesson score', h2[S2.data.id]?.completed >= 1, h2[S2.data.id]);
+    check('future dates are rejected for past lessons', (await T.post(`/lesson-plans/${planA.data.id}/past-lesson`, { scheduledAt: new Date(Date.now() + 5 * 86400000).toISOString(), items: [{ customTitle: 'x' }] })).status === 400);
+    check('students cannot record past lessons', (await S.post(`/lesson-plans/${planA.data.id}/past-lesson`, { scheduledAt: when.toISOString(), items: [{ customTitle: 'x' }] })).status === 403);
+    const paperDone = await T.post('/student-responses', { lessonPlanItemId: (await T.post(`/lesson-plans/${planA.data.id}/items`, { sheetId: S1.data.id })).data.id, responsesJson: { _tutorGraded: true } });
+    check('marking a sheet done on paper without a score is not 0%', paperDone.status === 201 && paperDone.data.score === null, paperDone.data);
+  }
+
   section('Group sessions');
   {
     const d = await T.get(`/lesson-plans/${planA.data.id}`);

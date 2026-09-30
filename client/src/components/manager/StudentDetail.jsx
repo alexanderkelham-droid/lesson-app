@@ -10,7 +10,8 @@ import SessionsPanel from '../shared/SessionsPanel'
 import SessionHistory from '../shared/SessionHistory'
 import PrintPackMenu from '../print/PrintPackMenu'
 import AiPlanModal from '../shared/AiPlanModal'
-import { ArrowLeft, ArrowRight, BookOpen, CalendarDays, Check, ClipboardList, FileText, KeyRound, Pencil, Play, Plus, Sparkles, StickyNote, Trash2, UserX, Zap } from 'lucide-react'
+import PastLessonModal from '../shared/PastLessonModal'
+import { ArrowLeft, ArrowRight, BookOpen, CalendarDays, Check, ClipboardList, FileText, History, KeyRound, Pencil, Play, Plus, Sparkles, StickyNote, Trash2, UserX, Zap } from 'lucide-react'
 import api from '../../lib/api'
 
 const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
@@ -57,6 +58,30 @@ export default function StudentDetail() {
   const [resetLoading, setResetLoading]   = useState(false)
   const [resetError, setResetError]       = useState('')
   const [showAiPlan, setShowAiPlan]       = useState(false)
+  const [pastLessonPlanId, setPastLessonPlanId] = useState(null)
+  const [creatingPlan, setCreatingPlan]   = useState(false)
+
+  // Record a past lesson. A student with no plan yet gets one first, so the
+  // lesson history has somewhere to live.
+  async function openPastLesson() {
+    setAiNotice('')
+    if (activePlan) return setPastLessonPlanId(activePlan.id)
+    setCreatingPlan(true)
+    try {
+      const res = await api.post('/lesson-plans', {
+        title: `${student.name.split(' ')[0]}'s lessons`,
+        studentId: student.id,
+        tutorId: user.id,
+        status: 'active',
+      })
+      await load()
+      setPastLessonPlanId(res.data.id)
+    } catch (e) {
+      setAiNotice(e.response?.data?.error || 'Could not start a plan for this student')
+    } finally {
+      setCreatingPlan(false)
+    }
+  }
   const [aiNotice, setAiNotice]           = useState('')
   const [markError, setMarkError]         = useState('')
 
@@ -398,6 +423,13 @@ export default function StudentDetail() {
                 >
                   <Sparkles className="icon-sm" aria-hidden /> Plan with AI
                 </button>
+                <button
+                  onClick={openPastLesson}
+                  className="btn-secondary btn-sm"
+                  title="Add a lesson that has already happened"
+                >
+                  <History className="icon-sm" aria-hidden /> Record past lesson
+                </button>
                 <PrintPackMenu planId={activePlan.id} />
                 {user?.role === 'manager' && (
                   <button
@@ -537,9 +569,15 @@ export default function StudentDetail() {
             </div>
             <p className="font-medium text-gray-900">No lesson plan yet</p>
             <p className="text-sm text-gray-500 mt-1 mb-4">Create a plan to start assigning sheets and scheduling sessions.</p>
-            <button onClick={() => navigate(`${basePath}/lesson-plans/new?studentId=${studentId}`)} className="btn-primary">
-              <Plus className="icon" aria-hidden /> Create lesson plan
-            </button>
+            <div className="flex flex-wrap justify-center gap-2">
+              <button onClick={() => navigate(`${basePath}/lesson-plans/new?studentId=${studentId}`)} className="btn-primary">
+                <Plus className="icon" aria-hidden /> Create lesson plan
+              </button>
+              <button onClick={openPastLesson} disabled={creatingPlan} className="btn-secondary">
+                <History className="icon" aria-hidden /> {creatingPlan ? 'Starting…' : 'Record a past lesson'}
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 mt-3">Already taught them? Record their last lesson first, then plan the next one from it.</p>
           </div>
         )}
       </main>
@@ -606,6 +644,15 @@ export default function StudentDetail() {
       )}
 
       {/* AI plan modal */}
+      {pastLessonPlanId && (
+        <PastLessonModal
+          planId={pastLessonPlanId}
+          studentName={student?.name?.split(' ')[0]}
+          onClose={() => setPastLessonPlanId(null)}
+          onSaved={r => { setAiNotice(`Past lesson saved: ${r.added} item${r.added === 1 ? '' : 's'} recorded${r.carriedOver ? `, ${r.carriedOver} unfinished moved to the next lesson` : ''}.`); load() }}
+        />
+      )}
+
       {showAiPlan && activePlan && (
         <AiPlanModal planId={activePlan.id} onClose={() => setShowAiPlan(false)} onApply={applyAiPlan} />
       )}

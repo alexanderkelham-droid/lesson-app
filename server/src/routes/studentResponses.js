@@ -77,6 +77,9 @@ router.post('/', auth, async (req, res, next) => {
         return res.status(400).json({ error: 'manualScore must be between 0 and 100' });
       }
       score = n;
+    } else if (role !== 'student' && responsesJson._tutorGraded) {
+      // Marked done on paper without a score: done, not 0%
+      score = null;
     } else {
       score = calculateScore(item.sheet.contentJson, responsesJson);
     }
