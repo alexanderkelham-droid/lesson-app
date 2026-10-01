@@ -1,33 +1,25 @@
 import { useState, useEffect, useMemo } from 'react'
-import { ArrowRight, CalendarDays, CalendarX, Check, ChevronRight, CornerDownRight, Pencil, Plus, Printer, RotateCcw, Trash2, Users, History } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { ArrowRight, CalendarDays, CalendarX, Check, ChevronRight, ClipboardList, CornerDownRight, Pencil, Plus, Printer, RotateCcw, Trash2, Users, History } from 'lucide-react'
 import SheetLink from './SheetLink'
 import CancelLessonModal from './CancelLessonModal'
+import PastLessonModal from './PastLessonModal'
 import { useConfirm } from './ConfirmModal'
+import { useAuth } from '../../context/AuthContext'
 import api from '../../lib/api'
 import { printPlanUrl } from '../../lib/print'
-import { rescheduleSession, carryOverSession } from '../../lib/sessions'
+import { rescheduleSession, carryOverSession, sameDayOrdinals, sessionNumberLabel, subjectLabel } from '../../lib/sessions'
+import { fmtDay, fmtDayTime, fmtTime, todayUk, ukDateTimeInput, ukInputToIso, ukParts } from '../../lib/datetime'
 
-function formatDateTime(d) {
-  return new Date(d).toLocaleString('en-GB', {
-    day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
-  })
-}
-
-const formatShort = d => new Date(d).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
-
-function toLocalISO(d) {
-  // Format Date as "yyyy-MM-ddTHH:mm" for datetime-local inputs
-  const pad = n => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
+// All times are UK time, whatever the device's time zone
+const formatDateTime = d => `${fmtDay(d)} ${ukParts(d).year}, ${fmtTime(d)}` // Tue 7 Oct 2026, 17:40
+const formatShort = d => fmtDayTime(d) // Tue 7 Oct, 17:40
 
 // Score colours: >=70 forest, 40-69 amber, <40 red
 function scoreClass(score) {
   const s = Math.round(score)
   return s >= 70 ? 'text-forest-700' : s >= 40 ? 'text-amber-700' : 'text-red-700'
 }
-
-import PastLessonModal from './PastLessonModal'
 
 export default function SessionsPanel({ planId, planTitle, canEdit = true, onChange }) {
   const [sessions, setSessions]   = useState([])
@@ -43,6 +35,10 @@ export default function SessionsPanel({ planId, planTitle, canEdit = true, onCha
   const [busyId, setBusyId]       = useState(null)
   const [confirm, confirmModal]   = useConfirm()
   const [groupTitles, setGroupTitles] = useState({}) // groupSessionId -> title
+  const navigate = useNavigate()
+  const { user } = useAuth()
+  const basePath = user?.role === 'tutor' ? '/tutor' : '/manager'
+  const openPlanner = s => navigate(`${basePath}/lesson-plans/${planId}/builder?session=${s.id}`)
 
   // First load shows "Loading…"; later refreshes update in place
   function load({ quiet = false } = {}) {
@@ -71,16 +67,15 @@ export default function SessionsPanel({ planId, planTitle, canEdit = true, onCha
   useEffect(() => { load() }, [planId])
 
   function startAdd() {
-    const next = new Date()
-    next.setHours(15, 0, 0, 0)
-    setDraft({ scheduledAt: toLocalISO(next), durationMins: 60, notes: '' })
+    // Today at 15:00 UK time
+    setDraft({ scheduledAt: `${todayUk()}T15:00`, durationMins: 60, notes: '' })
     setEditingId(null)
     setShowAdd(true)
   }
 
   function startEdit(s) {
     setDraft({
-      scheduledAt: toLocalISO(new Date(s.scheduledAt)),
+      scheduledAt: ukDateTimeInput(s.scheduledAt),
       durationMins: s.durationMins || 60,
       notes: s.notes || ''
     })
@@ -95,7 +90,7 @@ export default function SessionsPanel({ planId, planTitle, canEdit = true, onCha
     setNotice('')
     try {
       const payload = {
-        scheduledAt: new Date(draft.scheduledAt).toISOString(),
+        scheduledAt: ukInputToIso(draft.scheduledAt), // the input is UK wall-clock time
         durationMins: draft.durationMins ? parseInt(draft.durationMins) : null,
         notes: draft.notes || null
       }
@@ -187,8 +182,12 @@ export default function SessionsPanel({ planId, planTitle, canEdit = true, onCha
     return set
   }, [sessions])
 
+  const ordinals = useMemo(() => sameDayOrdinals(sessions), [sessions])
+
   const rowProps = {
     canEdit,
+    ordinals,
+    onPlan: canEdit ? openPlanner : null,
     upcoming,
     groupTitles,
     carriedIds,
@@ -234,7 +233,7 @@ export default function SessionsPanel({ planId, planTitle, canEdit = true, onCha
               <p className="eyebrow">{editingId ? 'Edit or reschedule session' : 'New session'}</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div>
-                  <label className="label text-xs" htmlFor="session-when">When</label>
+                  <label className="label text-xs" htmlFor="session-when">When (UK time)</label>
                   <input
                     id="session-when"
                     type="datetime-local"
@@ -329,7 +328,7 @@ export default function SessionsPanel({ planId, planTitle, canEdit = true, onCha
   )
 }
 
-function SessionRow({ session, canEdit, upcoming, groupTitles = {}, carriedIds, busyId, onEdit, onAttend, onUnattend, onDelete, onCancel, onCarryOver, onMoveItem, isPast }) {
+function SessionRow({ session, canEdit, ordinals = {}, onPlan, upcoming, groupTitles = {}, carriedIds, busyId, onEdit, onAttend, onUnattend, onDelete, onCancel, onCarryOver, onMoveItem, isPast }) {
   const attended = !!session.attendedAt
   const missed = isPast && !attended
   const cancelledLabel = !attended && /^Cancelled/.test(session.notes || '')
@@ -339,16 +338,32 @@ function SessionRow({ session, canEdit, upcoming, groupTitles = {}, carriedIds, 
   const moveTargets = upcoming.filter(s => s.id !== session.id)
   const when = formatShort(session.scheduledAt)
   const iconBtn = 'p-1.5 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-md'
+  const ordinal = ordinals[session.id]
+  const subject = subjectLabel(session.subject)
+
+  // Clicking anywhere on the row (except its own controls) opens the planner
+  function onRowClick(e) {
+    if (!onPlan || e.target.closest('button, a, select, input, textarea, summary, label, details')) return
+    onPlan(session)
+  }
 
   return (
-    <div className={`border rounded-lg p-3 ${
+    <div onClick={onRowClick} className={`border rounded-lg p-3 transition-colors ${onPlan ? 'cursor-pointer hover:border-gray-300' : ''} ${
       attended ? 'bg-white border-forest-100' : missed ? 'bg-amber-50/50 border-amber-200' : 'bg-white border-gray-200'
     }`}>
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <p className="text-sm font-medium text-gray-900">{formatDateTime(session.scheduledAt)}</p>
+            {onPlan ? (
+              <button type="button" onClick={() => onPlan(session)} className="text-sm font-medium text-gray-900 hover:text-redwood-700 hover:underline underline-offset-2 text-left" title="Plan this lesson">
+                {formatDateTime(session.scheduledAt)}
+              </button>
+            ) : (
+              <p className="text-sm font-medium text-gray-900">{formatDateTime(session.scheduledAt)}</p>
+            )}
             {session.durationMins && <span className="text-xs text-gray-500">· {session.durationMins} min</span>}
+            {ordinal && <span className="badge">{sessionNumberLabel(ordinal)}</span>}
+            {subject && <span className="badge">{subject}</span>}
             {attended && <span className="badge-success">Attended</span>}
             {missed && !cancelledLabel && <span className="badge-warning">No record</span>}
             {cancelledLabel && <span className="badge">Cancelled</span>}
@@ -418,7 +433,7 @@ function SessionRow({ session, canEdit, upcoming, groupTitles = {}, carriedIds, 
                         >
                           <option value="">Move to…</option>
                           {moveTargets.map(s => (
-                            <option key={s.id} value={s.id}>{formatShort(s.scheduledAt)}</option>
+                            <option key={s.id} value={s.id}>{[formatShort(s.scheduledAt), subjectLabel(s.subject), sessionNumberLabel(ordinals[s.id])].filter(Boolean).join(' · ')}</option>
                           ))}
                           <option value="unscheduled">Unscheduled</option>
                         </select>
@@ -430,7 +445,12 @@ function SessionRow({ session, canEdit, upcoming, groupTitles = {}, carriedIds, 
             </details>
           )}
         </div>
-        <div className="flex gap-0.5 flex-shrink-0">
+        <div className="flex gap-0.5 flex-shrink-0 flex-wrap justify-end">
+          {canEdit && onPlan && (
+            <button type="button" onClick={() => onPlan(session)} className="btn-secondary btn-sm mr-1" title="Open this lesson in the planner" aria-label={`Plan the lesson on ${when}`}>
+              <ClipboardList className="icon-sm" aria-hidden /> <span className="hidden sm:inline">Plan this lesson</span><span className="sm:hidden">Plan</span>
+            </button>
+          )}
           <a
             href={printPlanUrl(session.lessonPlanId, { session: session.id })}
             target="_blank"

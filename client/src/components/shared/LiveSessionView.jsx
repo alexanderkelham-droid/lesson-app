@@ -9,6 +9,11 @@ import InteractiveSheet from './InteractiveSheet'
 import api from '../../lib/api'
 import { ArrowLeft, BookOpen, Check, ClipboardList, ExternalLink, Eye, Hourglass, LoaderCircle, LogOut, Menu, Plus, X } from 'lucide-react'
 
+const CUSTOM_LABELS = {
+  ixl_maths: 'IXL Maths', ixl_english: 'IXL English', corbett_maths: 'Corbett Maths',
+  eleven_plus: '11+', homework: 'Homework', paper: 'Paper activity', other: 'Custom task',
+}
+
 export default function LiveSessionView() {
   const { planId } = useParams()
   const navigate = useNavigate()
@@ -541,15 +546,16 @@ function LiveRoom({
                   {activeItem.customTitle}
                 </h3>
                 <p className="badge mb-3">
-                  {activeItem.customType === 'ixl_maths' ? 'IXL Maths'
-                    : activeItem.customType === 'ixl_english' ? 'IXL English'
-                    : activeItem.customType === 'paper' ? 'Paper activity'
-                    : 'Custom task'}
+                  {CUSTOM_LABELS[activeItem.customType] || 'Custom task'}
                 </p>
                 <p className="text-base text-gray-600">
                   {activeItem.customType?.startsWith('ixl')
                     ? (isTeacher ? 'The student works on this in IXL.' : 'Open IXL and do this skill. Your tutor will tick it off when you\'re done.')
-                    : (isTeacher ? 'This task is done away from the screen.' : 'Your tutor will explain this task and tick it off when you\'re done.')}
+                    : activeItem.customType === 'homework'
+                      ? (isTeacher ? 'Homework, to be done at home.' : 'This is your homework. Your tutor will check it next time.')
+                      : activeItem.customType === 'corbett_maths'
+                        ? (isTeacher ? 'The student works on this from Corbett Maths.' : 'Your tutor will give you this Corbett Maths task and tick it off when you\'re done.')
+                        : (isTeacher ? 'This task is done away from the screen.' : 'Your tutor will explain this task and tick it off when you\'re done.')}
                 </p>
                 {activeItem.customType?.startsWith('ixl') && (
                   <a href="https://www.ixl.com/signin" target="_blank" rel="noopener noreferrer" className="btn-secondary mt-4">

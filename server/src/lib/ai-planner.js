@@ -10,7 +10,7 @@ const prisma = require('../prisma');
 const { isAnswerCorrect, hasAnswerKey } = require('./scoring');
 
 const MODEL = process.env.PLANNER_MODEL || 'claude-sonnet-5';
-const CUSTOM_TYPES = ['ixl_maths', 'ixl_english', 'paper', 'other'];
+const CUSTOM_TYPES = ['ixl_maths', 'ixl_english', 'corbett_maths', 'eleven_plus', 'paper', 'homework', 'other'];
 
 const SYSTEM = `You are an experienced UK primary/secondary tutor and curriculum planner at Redwood Scholars, a tuition centre. You plan 1:1 lessons (typically 45–60 minutes) for children aged ~5–16 in Maths and English.
 
@@ -22,6 +22,7 @@ Planning principles:
 - Mix: usually one main teaching sheet, one practice/consolidation sheet, a short warm-up or retrieval task, and optionally an IXL or paper task. Fit the lesson length (estimate minutes; a typical sheet takes 10–20 min).
 - Items under "ALREADY PLANNED / UNSCHEDULED" are already in the plan — never suggest them again; plan AROUND them (they will be done first). Don't repeat sheets already completed with a good score. Re-setting a sheet the student did poorly on is fine if you say why. Unfinished carried-over work should normally come first.
 - Prefer library sheets that are NOT marked [review] (those may have digital errors); if you do pick one, mention the tutor should use the printed original. Sheets marked [paper only] have no online version: fine for in-centre lessons (printed), mention it in the reason.
+- Custom item types: ixl_maths / ixl_english (IXL skills, e.g. "IXL, Level G, F.2, Literary devices, 25 questions"), corbett_maths (Corbett Maths 5-a-day or textbook exercises), eleven_plus (11+ practice), paper, homework (set as homework — usually one per lesson), other.
 - Only use sheet ids from the library list. If nothing suitable exists, use a custom item (IXL skill, paper activity) and describe it precisely.
 - Follow any tutor instructions exactly (they override these defaults).
 - Never use emojis or decorative symbols; plain text only.
@@ -149,7 +150,7 @@ async function studentContext(planId) {
     where: { id: planId },
     select: {
       id: true, title: true, studentId: true, studentNotes: true, lessonDayOfWeek: true, lessonTime: true,
-      student: { select: { name: true, age: true, subjectFocus: true } },
+      student: { select: { name: true, age: true, subjectFocus: true, schoolYear: true } },
       tutor: { select: { name: true } },
     },
   });
@@ -210,7 +211,7 @@ async function studentContext(planId) {
   const upcoming = ordered.filter(s => new Date(s.scheduledAt) >= now && !s.attendedAt);
 
   const parts = [];
-  parts.push(`STUDENT: ${plan.student.name}, age ${plan.student.age ?? 'unknown'}, focus: ${plan.student.subjectFocus || 'not set'}. Tutor: ${plan.tutor.name}. Plan: "${plan.title}".`);
+  parts.push(`STUDENT: ${plan.student.name}, ${plan.student.schoolYear || 'school year unknown'}, age ${plan.student.age ?? 'unknown'}, focus: ${plan.student.subjectFocus || 'not set'}. Tutor: ${plan.tutor.name}. Plan: "${plan.title}".`);
   if (plan.studentNotes) parts.push(`Note to student: ${clip(plan.studentNotes, 300)}`);
   const durations = past.map(s => s.durationMins).filter(Boolean);
   parts.push(`Typical lesson length: ${durations.length ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length) : 60} minutes.`);

@@ -1,9 +1,14 @@
 import { useState, useEffect, useId } from 'react'
-import { Check, GraduationCap, UserRound, X } from 'lucide-react'
+import { Check, GraduationCap, Plus, Trash2, UserRound, X } from 'lucide-react'
 import api from '../../lib/api'
 import { CopyableText } from '../shared/ConfirmModal'
+import { DAY_LONG, SUBJECT_LABELS, sortSlots } from '../../lib/dates'
 
-const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+const SCHOOL_YEARS = ['Reception', ...Array.from({ length: 13 }, (_, i) => `Year ${i + 1}`), 'Adult/Other']
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/
+
+let rowSeq = 0
+const newRow = (over = {}) => ({ key: `r${++rowSeq}`, dayOfWeek: 0, time: '', subject: '', durationMins: 60, ...over })
 
 /**
  * AddUserModal — manager-only.
@@ -21,7 +26,9 @@ export default function AddUserModal({ onClose, onSaved, editUser, defaultRole =
   const [password, setPassword]       = useState('')
   const [age, setAge]                 = useState('')
   const [subjectFocus, setSubjectFocus] = useState('')
-  const [lessonDays, setLessonDays]   = useState([])
+  const [schoolYear, setSchoolYear]   = useState('')
+  const [ixlUsername, setIxlUsername] = useState('')
+  const [slots, setSlots]             = useState([]) // weekly lesson rows
   const [saving, setSaving]           = useState(false)
   const [error, setError]             = useState('')
   const [created, setCreated]         = useState(null) // { name, email, password } after creating
@@ -46,14 +53,39 @@ export default function AddUserModal({ onClose, onSaved, editUser, defaultRole =
       setEmail(editUser.email || '')
       setAge(editUser.age || '')
       setSubjectFocus(editUser.subjectFocus || '')
-      setLessonDays(editUser.lessonDays?.map(d => typeof d === 'object' ? d.dayOfWeek : d) || [])
+      setSchoolYear(editUser.schoolYear || '')
+      setIxlUsername(editUser.ixlUsername || '')
+      // Older students may only have a day (no time yet) — show those rows with an empty time to fill in
+      setSlots(sortSlots(editUser.slots || editUser.lessonDays).map(sl => newRow({
+        dayOfWeek: sl.dayOfWeek,
+        time: sl.time || '',
+        subject: sl.subject || '',
+        durationMins: sl.durationMins || 60,
+      })))
     }
   }, [editUser])
 
-  function toggleDay(day) {
-    setLessonDays(prev =>
-      prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day].sort()
-    )
+  const updateSlot = (key, patch) => setSlots(prev => prev.map(r => (r.key === key ? { ...r, ...patch } : r)))
+  const removeSlot = key => setSlots(prev => prev.filter(r => r.key !== key))
+  const addSlot = () => setSlots(prev => {
+    const last = prev[prev.length - 1]
+    return [...prev, newRow(last ? { dayOfWeek: last.dayOfWeek, subject: last.subject, durationMins: last.durationMins } : {})]
+  })
+
+  // Returns an error message, or null when the rows are fine
+  function checkSlots() {
+    const seen = new Set()
+    for (const r of slots) {
+      if (r.time && !TIME_RE.test(r.time)) return `"${r.time}" isn't a valid time. Use 24-hour HH:MM, e.g. 16:00.`
+      const len = Number(r.durationMins)
+      if (r.durationMins !== '' && !(Number.isInteger(len) && len > 0 && len <= 600)) return 'Lesson length must be between 1 and 600 minutes.'
+      if (r.time) {
+        const k = `${r.dayOfWeek}|${r.time}`
+        if (seen.has(k)) return `There are two lessons on ${DAY_LONG[r.dayOfWeek]} at ${r.time}. Change one of the times.`
+        seen.add(k)
+      }
+    }
+    return null
   }
 
   function generatePassword() {
@@ -81,11 +113,21 @@ export default function AddUserModal({ onClose, onSaved, editUser, defaultRole =
       setError('Password must be at least 8 characters')
       return
     }
+    if (isStudent) {
+      const slotError = checkSlots()
+      if (slotError) { setError(slotError); return }
+    }
     setSaving(true)
     setError('')
     try {
+      const lessonDays = slots.map(r => ({
+        dayOfWeek: Number(r.dayOfWeek),
+        time: r.time || null,
+        subject: r.subject || null,
+        durationMins: r.durationMins ? Number(r.durationMins) : null,
+      }))
       const payload = isStudent
-        ? { name, email, age, subjectFocus, lessonDays }
+        ? { name, email, age, subjectFocus, schoolYear: schoolYear || null, ixlUsername: ixlUsername.trim() || null, lessonDays }
         : { name, email }
       if (isEdit) {
         await api.put(`/users/${editUser.id}`, payload)
@@ -127,7 +169,7 @@ export default function AddUserModal({ onClose, onSaved, editUser, defaultRole =
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 p-4" onClick={onClose}>
-      <div role="dialog" aria-modal="true" aria-labelledby={`${uid}-title`} className="modal-panel w-full max-w-md max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+      <div role="dialog" aria-modal="true" aria-labelledby={`${uid}-title`} className={`modal-panel w-full ${isStudent ? 'max-w-xl' : 'max-w-md'} max-h-[90vh] overflow-y-auto`} onClick={e => e.stopPropagation()}>
         <div className="p-6">
           <div className="flex items-center justify-between mb-5">
             <h2 id={`${uid}-title`} className="section-title">{title}</h2>
@@ -214,27 +256,80 @@ export default function AddUserModal({ onClose, onSaved, editUser, defaultRole =
                   </div>
                 </div>
 
-                <div>
-                  <p className="label" id={`${uid}-days`}>Lesson days</p>
-                  <div className="flex flex-wrap gap-2 mt-1" role="group" aria-labelledby={`${uid}-days`}>
-                    {DAY_NAMES.map((dayName, idx) => (
-                      <button
-                        key={idx}
-                        type="button"
-                        onClick={() => toggleDay(idx)}
-                        aria-pressed={lessonDays.includes(idx)}
-                        aria-label={dayName}
-                        className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
-                          lessonDays.includes(idx)
-                            ? 'bg-redwood-600 border-redwood-600 text-white'
-                            : 'bg-white border-gray-300 text-gray-600 hover:border-gray-400'
-                        }`}
-                      >
-                        {dayName.slice(0, 3)}
-                      </button>
-                    ))}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="label" htmlFor={`${uid}-year`}>School year</label>
+                    <select id={`${uid}-year`} value={schoolYear} onChange={e => setSchoolYear(e.target.value)} className="input">
+                      <option value="">Select…</option>
+                      {SCHOOL_YEARS.map(y => <option key={y} value={y}>{y}</option>)}
+                      {schoolYear && !SCHOOL_YEARS.includes(schoolYear) && <option value={schoolYear}>{schoolYear}</option>}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label" htmlFor={`${uid}-ixl`}>IXL username</label>
+                    <input id={`${uid}-ixl`} value={ixlUsername} onChange={e => setIxlUsername(e.target.value)} maxLength={80} className="input" placeholder="e.g. alice.smith" autoComplete="off" spellCheck={false} />
                   </div>
                 </div>
+                <p className="text-xs text-gray-500 -mt-2">The IXL username is printed at the top of each lesson plan.</p>
+
+                <fieldset>
+                  <legend className="label">Weekly lessons</legend>
+                  <p className="text-xs text-gray-500 mb-2">
+                    Add a row for each regular lesson. A student can have two on one day. Times are UK time.
+                  </p>
+                  {slots.length === 0 ? (
+                    <p className="text-sm text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">No regular lessons yet.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="hidden sm:grid grid-cols-[1.3fr_1fr_1.2fr_0.9fr_auto] gap-2 eyebrow px-0.5" aria-hidden>
+                        <span>Day</span><span>Time (UK)</span><span>Subject</span><span>Minutes</span><span className="w-8" />
+                      </div>
+                      {slots.map((r, i) => (
+                        <div key={r.key} className="grid grid-cols-2 sm:grid-cols-[1.3fr_1fr_1.2fr_0.9fr_auto] gap-2 items-center" role="group" aria-label={`Lesson ${i + 1}`}>
+                          <select value={r.dayOfWeek} onChange={e => updateSlot(r.key, { dayOfWeek: Number(e.target.value) })} className="input" aria-label={`Lesson ${i + 1} day`}>
+                            {DAY_LONG.map((d, idx) => <option key={d} value={idx}>{d}</option>)}
+                          </select>
+                          <input
+                            type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5}
+                            value={r.time}
+                            onChange={e => updateSlot(r.key, { time: e.target.value.trim() })}
+                            onBlur={e => { const v = e.target.value.trim(); if (/^\d:\d\d$/.test(v)) updateSlot(r.key, { time: `0${v}` }) }}
+                            className={`input tabular-nums ${r.time && !TIME_RE.test(r.time) ? 'border-red-300' : ''}`}
+                            aria-label={`Lesson ${i + 1} time, UK, 24-hour HH:MM`}
+                            aria-invalid={!!r.time && !TIME_RE.test(r.time)}
+                          />
+                          <select value={r.subject} onChange={e => updateSlot(r.key, { subject: e.target.value })} className="input" aria-label={`Lesson ${i + 1} subject`}>
+                            <option value="">Subject…</option>
+                            {Object.entries(SUBJECT_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                          </select>
+                          <div className="flex items-center gap-1 sm:contents">
+                            <input
+                              type="number" min="1" max="600" step="5"
+                              value={r.durationMins}
+                              onChange={e => updateSlot(r.key, { durationMins: e.target.value === '' ? '' : Number(e.target.value) })}
+                              className="input tabular-nums"
+                              aria-label={`Lesson ${i + 1} length in minutes`}
+                            />
+                            <button type="button" onClick={() => removeSlot(r.key)} className="btn-ghost px-2 text-gray-500 hover:text-red-700" aria-label={`Remove lesson ${i + 1}`} title="Remove lesson">
+                              <Trash2 className="icon" aria-hidden />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <button type="button" onClick={addSlot} className="btn-secondary btn-sm mt-2">
+                    <Plus className="icon" aria-hidden /> Add lesson
+                  </button>
+                  {slots.some(r => !r.time) && (
+                    <p className="text-xs text-amber-800 bg-amber-50 rounded-lg px-3 py-2 mt-2">
+                      Lessons without a time can't be added to the timetable yet. Add a time to each row.
+                    </p>
+                  )}
+                  {isEdit && (
+                    <p className="text-xs text-gray-500 mt-2">Changing these updates the student's upcoming lessons.</p>
+                  )}
+                </fieldset>
               </>
             )}
 

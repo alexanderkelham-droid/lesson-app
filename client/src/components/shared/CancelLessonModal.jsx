@@ -1,6 +1,7 @@
 import { useState, useEffect, useId } from 'react'
 import { X, CalendarX } from 'lucide-react'
 import { cancelSession } from '../../lib/sessions'
+import { fmtDayLong, fmtTime } from '../../lib/datetime'
 
 // Cancel a lesson that hasn't happened and decide where its work goes.
 export default function CancelLessonModal({ session, itemCount = 0, onClose, onDone }) {
@@ -15,7 +16,7 @@ export default function CancelLessonModal({ session, itemCount = 0, onClose, onD
     return () => document.removeEventListener('keydown', onKey)
   }, [busy, onClose])
 
-  const when = new Date(session.scheduledAt).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })
+  const when = `${fmtDayLong(session.scheduledAt)}, ${fmtTime(session.scheduledAt)}` // UK time
 
   async function submit() {
     setBusy(true)

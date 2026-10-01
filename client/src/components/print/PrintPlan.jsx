@@ -5,10 +5,14 @@ import LoadingSpinner from '../shared/LoadingSpinner'
 import RedwoodLogo from '../shared/RedwoodLogo'
 import { PrintedSheet, AnswerKey } from './PrintedSheet'
 import { PrintToolbar, ToggleChip, OriginalPdfButton, PrintMessage } from './PrintToolbar'
+import { fmtDate, ukParts } from '../../lib/datetime'
 import './print.css'
 
-
-const CUSTOM_LABELS = { ixl_maths: 'IXL Maths', ixl_english: 'IXL English', paper: 'Paper task' }
+const CUSTOM_LABELS = {
+  ixl_maths: 'IXL Maths', ixl_english: 'IXL English', corbett_maths: 'Corbett Maths',
+  eleven_plus: '11+', homework: 'Homework', paper: 'Paper task', other: 'Task',
+}
+const isHomework = item => !item.sheet && item.customType === 'homework'
 
 function itemTitle(item) {
   return item.sheet?.title || item.customTitle || 'Untitled'
@@ -25,10 +29,13 @@ function itemKind(item) {
 // /print/plan/:planId?session=<id|next|all|unscheduled>&answers=0|1&notes=0|1
 const SUBJECTS = { maths: 'Maths', english: 'English', both: 'English & Maths' }
 
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+
+// "7th October 2026" — the lesson's date in UK time
 function ordinalDate(d) {
-  const day = d.getDate()
+  const { day, month, year } = ukParts(d)
   const suffix = ['th', 'st', 'nd', 'rd'][((day % 100) - 20) % 10] || ['th', 'st', 'nd', 'rd'][day % 100] || 'th'
-  return `${day}${suffix} ${d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}`
+  return `${day}${suffix} ${MONTHS[month - 1]} ${year}`
 }
 
 // Score column: score if marked, TBC if awaiting marking, "done" for tasks without a score
@@ -47,7 +54,9 @@ function sheetLabel(item) {
 
 // Bordered lesson sheet matching the centre's paper template
 function LessonSheet({ student, tutor, date, items, showNotes, emptyLabel }) {
-  const rows = [...items]
+  // Homework tasks go in the Homework row, like the paper sheet
+  const homework = items.filter(isHomework)
+  const rows = items.filter(i => !isHomework(i))
   while (rows.length < 9) rows.push(null)
   return (
     <table className="lesson-sheet">
@@ -55,12 +64,19 @@ function LessonSheet({ student, tutor, date, items, showNotes, emptyLabel }) {
       <tbody>
         <tr className="ls-welcome"><td colSpan={3}>Welcome to Redwood Scholars Tuition!</td><td /></tr>
         <tr className="ls-student">
-          <td colSpan={2} className="ls-name">{student?.name}</td>
+          <td colSpan={2} className="ls-name">
+            {student?.name}
+            {student?.ixlUsername && (
+              <div className="ls-ixl" style={{ fontSize: '11pt', fontWeight: 700, color: '#a8341a', marginTop: 2 }}>
+                ({student.ixlUsername})
+              </div>
+            )}
+          </td>
           <td className="ls-date">{date ? ordinalDate(date) : emptyLabel}</td>
           <td />
         </tr>
         <tr className="ls-meta">
-          <td colSpan={2}>{SUBJECTS[student?.subjectFocus] || ''}</td>
+          <td colSpan={2}>{[SUBJECTS[student?.subjectFocus], student?.schoolYear].filter(Boolean).join(' · ')}</td>
           <td>Tutor: {tutor?.name || ''}</td>
           <td className="ls-score-head">Score%</td>
         </tr>
@@ -75,7 +91,17 @@ function LessonSheet({ student, tutor, date, items, showNotes, emptyLabel }) {
             <td>{item && scoreText(item)}</td>
           </tr>
         ))}
-        <tr className="ls-homework"><td /><td colSpan={2}><strong>Homework:</strong></td><td /></tr>
+        <tr className="ls-homework">
+          <td />
+          <td colSpan={2}>
+            <strong>Homework:</strong>
+            {homework.length > 0 && <span> {homework.map(h => h.customTitle || 'Homework').join('; ')}</span>}
+            {showNotes && homework.filter(h => h.tutorNotes).map(h => (
+              <div key={h.id} className="ls-note">Note: {h.tutorNotes}</div>
+            ))}
+          </td>
+          <td>{homework.length === 1 ? scoreText(homework[0]) : ''}</td>
+        </tr>
       </tbody>
     </table>
   )
@@ -103,7 +129,7 @@ export default function PrintPlan() {
   }, [planId, session])
 
   const lessonDate = data?.session ? new Date(data.session.scheduledAt) : null
-  const dateLabel = lessonDate?.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) || ''
+  const dateLabel = lessonDate ? fmtDate(lessonDate) : ''
 
   useEffect(() => {
     if (!data) return

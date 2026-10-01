@@ -11,8 +11,8 @@ import Tour from '../shared/Tour'
 import { managerTour } from '../shared/tourSteps'
 import { AlertTriangle, ArrowRight, ChevronRight, KeyRound, Library, Pencil, Plus, Search, Trash2, UserPlus, Users, Zap } from 'lucide-react'
 import api from '../../lib/api'
-
-const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+import { fmtDate } from '../../lib/datetime'
+import { DAY_SHORT, fmtSlot, sortSlots } from '../../lib/dates'
 
 // Score colours: >=70 forest, 40-69 amber, <40 red (rounded first)
 function scoreClass(score) {
@@ -239,7 +239,8 @@ export default function ManagerDashboard() {
                 <tr>
                   <th className={TH}>Student</th>
                   <th className={`${TH} hidden md:table-cell`}>Subject</th>
-                  <th className={`${TH} hidden lg:table-cell`}>Days</th>
+                  <th className={`${TH} hidden md:table-cell`}>Year</th>
+                  <th className={`${TH} hidden lg:table-cell`}>Weekly lessons</th>
                   <th className={`${TH} hidden md:table-cell`}>Lesson plan</th>
                   <th className={TH}>Progress</th>
                   <th className={`${TH} hidden sm:table-cell`}>Last active</th>
@@ -268,6 +269,7 @@ export default function ManagerDashboard() {
                         <div className="min-w-0">
                           <p className="font-medium text-gray-900">{s.name}</p>
                           <p className="text-xs text-gray-500 hidden sm:block">{s.email}</p>
+                          {s.schoolYear && <p className="text-xs text-gray-500 md:hidden">{s.schoolYear}</p>}
                         </div>
                         {s.flagged && <span className="badge-danger ml-1 hidden sm:inline-flex">Flagged</span>}
                       </div>
@@ -279,12 +281,15 @@ export default function ManagerDashboard() {
                         <span className="text-gray-300">—</span>
                       )}
                     </td>
+                    <td className="px-4 py-3 hidden md:table-cell text-gray-700 whitespace-nowrap">
+                      {s.schoolYear || <span className="text-gray-300">—</span>}
+                    </td>
                     <td className="px-4 py-3 hidden lg:table-cell">
-                      {s.lessonDays && s.lessonDays.length > 0 ? (
-                        <div className="flex gap-1">
-                          {s.lessonDays.map(d => (
-                            <span key={d} className="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">
-                              {DAY_NAMES[d]}
+                      {(s.slots?.length || s.lessonDays?.length) ? (
+                        <div className="flex flex-wrap gap-1">
+                          {(s.slots?.length ? sortSlots(s.slots) : sortSlots(s.lessonDays)).map((sl, i) => (
+                            <span key={sl.id ?? i} className="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded tabular-nums whitespace-nowrap">
+                              {sl.time || sl.subject ? fmtSlot(sl) : DAY_SHORT[sl.dayOfWeek]}
                             </span>
                           ))}
                         </div>
@@ -303,7 +308,7 @@ export default function ManagerDashboard() {
                       <ProgressBar value={s.progress} />
                     </td>
                     <td className="px-4 py-3 text-gray-500 hidden sm:table-cell text-xs tabular-nums">
-                      {s.lastActivity ? new Date(s.lastActivity).toLocaleDateString('en-GB') : '—'}
+                      {s.lastActivity ? fmtDate(s.lastActivity) : '—'}
                     </td>
                     <td className="px-4 py-3 hidden lg:table-cell tabular-nums">
                       {s.avgScore !== null && s.avgScore !== undefined ? (
@@ -442,7 +447,7 @@ export default function ManagerDashboard() {
                       </p>
                     </div>
                     <span className="text-xs text-gray-500 flex-shrink-0 tabular-nums">
-                      {new Date(log.createdAt).toLocaleDateString('en-GB')}
+                      {fmtDate(log.createdAt)}
                     </span>
                   </div>
                 ))}

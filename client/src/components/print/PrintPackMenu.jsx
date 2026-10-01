@@ -2,11 +2,12 @@ import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import api from '../../lib/api'
 import { printPlanUrl, openInNewTab, downloadOriginalsPack } from '../../lib/print'
 import { FileDown, Printer } from 'lucide-react'
+import { fmtDayTime, todayUk, ukDateKey } from '../../lib/datetime'
+import { sessionNumbers, subjectLabel } from '../../lib/dates'
 
-function formatSession(s) {
-  return new Date(s.scheduledAt).toLocaleString('en-GB', {
-    weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
-  })
+// "Tue 7 Oct, 17:40 · Maths · Session 2" (UK time)
+function formatSession(s, numbers) {
+  return [fmtDayTime(s.scheduledAt), subjectLabel(s.subject), numbers?.get(s.id)].filter(Boolean).join(' · ')
 }
 
 // "Print lesson pack" button + small popover: pick a session (defaults to
@@ -16,6 +17,7 @@ export default function PrintPackMenu({ planId }) {
   const [open, setOpen] = useState(false)
   const [sessions, setSessions] = useState(null)
   const [itemCounts, setItemCounts] = useState({})
+  const [numbers, setNumbers] = useState(() => new Map())
   const [choice, setChoice] = useState('all')
   const [answers, setAnswers] = useState(false)
   const [notes, setNotes] = useState(false)
@@ -29,9 +31,11 @@ export default function PrintPackMenu({ planId }) {
     if (!open || sessions) return
     api.get(`/lesson-plans/${planId}`)
       .then(res => {
-        const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0)
-        const upcoming = (res.data.sessions || [])
-          .filter(s => !s.attendedAt && new Date(s.scheduledAt) >= startOfToday)
+        const today = todayUk()
+        const all = res.data.sessions || []
+        setNumbers(sessionNumbers(all, () => 'student'))
+        const upcoming = all
+          .filter(s => !s.attendedAt && ukDateKey(s.scheduledAt) >= today)
           .sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt))
           .slice(0, 8)
         const counts = {}
@@ -134,7 +138,7 @@ export default function PrintPackMenu({ planId }) {
                 <label key={s.id} className="flex items-center gap-2 text-sm cursor-pointer px-1 py-0.5 rounded hover:bg-gray-50">
                   <input type="radio" name="print-choice" checked={choice === String(s.id)} onChange={() => setChoice(String(s.id))} className="accent-redwood-600" />
                   <span className="flex-1">
-                    {i === 0 ? 'Next: ' : ''}{formatSession(s)}
+                    {i === 0 ? 'Next: ' : ''}{formatSession(s, numbers)}
                     <span className="text-xs text-gray-500"> · {itemCounts[s.id] || 0} item{itemCounts[s.id] === 1 ? '' : 's'}</span>
                   </span>
                 </label>

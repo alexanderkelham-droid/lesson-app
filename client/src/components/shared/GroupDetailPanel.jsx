@@ -11,15 +11,20 @@ import { useTopEscape } from '../../lib/escape'
 import { useConfirm } from './ConfirmModal'
 import SheetLink from './SheetLink'
 import GroupSessionModal, { StudentPicker, MAX_GROUP_SIZE } from './GroupSessionModal'
+import { fmtDayLong, fmtTime } from '../../lib/datetime'
 
-const CUSTOM_LABELS = { ixl_maths: 'IXL Maths', ixl_english: 'IXL English', paper: 'Paper activity', other: 'Custom task' }
+const CUSTOM_LABELS = {
+  ixl_maths: 'IXL Maths', ixl_english: 'IXL English', corbett_maths: 'Corbett Maths',
+  eleven_plus: '11+', homework: 'Homework', paper: 'Paper activity', other: 'Custom task',
+}
 
+// Day and times in UK time, whatever the device's zone
 export function formatGroupWhen(g) {
   const start = new Date(g.scheduledAt)
   const end = new Date(start.getTime() + (g.durationMins || 60) * 60000)
-  const t = d => d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })
+  const t = fmtTime
   return {
-    day: start.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }),
+    day: fmtDayLong(start),
     time: `${t(start)} to ${t(end)}`,
     start: t(start),
   }

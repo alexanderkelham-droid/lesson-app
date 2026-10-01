@@ -19,7 +19,7 @@ const staff = requireRole('manager', 'tutor');
 
 const MEMBER_SELECT = {
   id: true, scheduledAt: true, attendedAt: true, durationMins: true, notes: true, lessonPlanId: true,
-  lessonPlan: { select: { id: true, title: true, tutorId: true, student: { select: { id: true, name: true, age: true, subjectFocus: true } } } },
+  lessonPlan: { select: { id: true, title: true, tutorId: true, student: { select: { id: true, name: true, age: true, subjectFocus: true, ixlUsername: true } } } },
   items: {
     orderBy: { sequenceOrder: 'asc' },
     select: {

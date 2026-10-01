@@ -5,10 +5,11 @@ import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
 import interactionPlugin from '@fullcalendar/interaction'
 import enGbLocale from '@fullcalendar/core/locales/en-gb'
-import { CalendarClock, CalendarX, Check, Move, Plus, Trash2, Users, X } from 'lucide-react'
+import { CalendarClock, CalendarX, Check, Move, NotebookPen, Plus, Trash2, Users, X } from 'lucide-react'
 import api from '../../lib/api'
 import { useAuth } from '../../context/AuthContext'
-import { localDateKey } from '../../lib/dates'
+import { localDateKey, sortSlots, subjectLabel, sessionNumbers, toSlots } from '../../lib/dates'
+import { fmtDayLong, fmtDayTime, fmtTime, todayUk, ukDateTimeInput, ukInputToIso, ukParts, ukTimeKey, ukToIso } from '../../lib/datetime'
 import { rescheduleSession } from '../../lib/sessions'
 import { useConfirm } from '../shared/ConfirmModal'
 import CancelLessonModal from '../shared/CancelLessonModal'
@@ -16,20 +17,33 @@ import GroupDetailPanel from '../shared/GroupDetailPanel'
 import GroupSessionModal from '../shared/GroupSessionModal'
 import { useApplyTo } from '../shared/ApplyToDialog'
 
-// Map our DB dayOfWeek (0=Mon..6=Sun) to JS day indices (0=Sun,1=Mon..6=Sat)
-function dbDayToJsDay(dbDay) {
-  return dbDay === 6 ? 0 : dbDay + 1
-}
+// ── UK wall-clock <-> FullCalendar ─────────────────────────────────────
+// FullCalendar runs in the device's local zone. We feed it NAIVE UK
+// wall-clock strings ("2026-10-07T17:40:00", no offset), so a 17:40 UK
+// lesson shows at 17:40 on any device. Going back, we read the wall-clock
+// FullCalendar reports (the first characters of its *Str values) and treat
+// it as UK time.
+const ukNaive = date => `${ukDateTimeInput(date)}:00`
+const wallDate = str => String(str).slice(0, 10)                  // "YYYY-MM-DD"
+const wallTime = str => (String(str).length > 10 ? String(str).slice(11, 16) : '00:00') // "HH:MM"
+const wallToIso = str => ukToIso(wallDate(str), wallTime(str))
 
-function getDatesForDay(jsDayOfWeek, start, end) {
-  const dates = []
-  const d = new Date(start)
-  while (d.getDay() !== jsDayOfWeek) d.setDate(d.getDate() + 1)
-  while (d < end) {
-    dates.push(new Date(d))
-    d.setDate(d.getDate() + 7)
-  }
-  return dates
+// Calendar-date maths on "YYYY-MM-DD" keys (UTC arithmetic, independent of the device zone)
+function addDaysKey(key, n) {
+  const [y, m, d] = key.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10)
+}
+function dowOfKey(key) { // 0 = Mon … 6 = Sun
+  const [y, m, d] = key.split('-').map(Number)
+  const js = new Date(Date.UTC(y, m - 1, d)).getUTCDay()
+  return js === 0 ? 6 : js - 1
+}
+function datesForDay(dbDay, startKey, endKey) {
+  const out = []
+  let k = startKey
+  while (dowOfKey(k) !== dbDay) k = addDaysKey(k, 1)
+  for (; k < endKey; k = addDaysKey(k, 7)) out.push(k)
+  return out
 }
 
 // Palette-only event colours (redwood / cream / stone; forest + amber for status)
@@ -39,6 +53,8 @@ const SUBJECT_COLORS = {
   both:    { bg: '#ffffff', border: '#a8341a', text: '#7e2614' }, // white, redwood edge
   default: { bg: '#f5f5f4', border: '#a8a29e', text: '#44403c' }  // stone
 }
+SUBJECT_COLORS['11plus'] = SUBJECT_COLORS.default
+SUBJECT_COLORS.other = SUBJECT_COLORS.default
 
 const STATUS_COLORS = {
   attended: { bg: '#eaf5ee', border: '#266839', text: '#1e522d' }, // forest
@@ -75,7 +91,7 @@ const CALENDAR_CSS = `
 }
 `
 
-const fmtWhen = d => new Date(d).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+const fmtWhen = fmtDayTime
 
 export default function CalendarView({ students, plans, refreshKey = 0 }) {
   const navigate = useNavigate()
@@ -83,7 +99,7 @@ export default function CalendarView({ students, plans, refreshKey = 0 }) {
   const basePath = user?.role === 'tutor' ? '/tutor' : '/manager'
   const [selectedEvent, setSelectedEvent] = useState(null)
   const [sessions, setSessions] = useState([])
-  const [range, setRange] = useState(null)        // { start, end, viewType }
+  const [range, setRange] = useState(null)        // { startKey, endKey, viewType } (UK date keys)
   const [editSession, setEditSession] = useState(null) // { id, scheduledAt, durationMins, notes }
   const [savingEdit, setSavingEdit] = useState(false)
   const [cancelling, setCancelling] = useState(null)
@@ -98,7 +114,7 @@ export default function CalendarView({ students, plans, refreshKey = 0 }) {
   // Fetch sessions + group sessions for the visible range
   const loadSessions = useCallback(async (r = range) => {
     if (!r) return
-    const q = `from=${r.start.toISOString()}&to=${r.end.toISOString()}`
+    const q = `from=${encodeURIComponent(ukToIso(r.startKey))}&to=${encodeURIComponent(ukToIso(r.endKey))}`
     const [sRes, gRes] = await Promise.allSettled([api.get(`/sessions?${q}`), api.get(`/groups?${q}`)])
     if (sRes.status === 'fulfilled') setSessions(sRes.value.data)
     if (gRes.status === 'fulfilled') setGroups(gRes.value.data)
@@ -107,10 +123,12 @@ export default function CalendarView({ students, plans, refreshKey = 0 }) {
   useEffect(() => { loadSessions() }, [loadSessions, refreshKey])
 
   function handleDatesSet(info) {
-    const key = `${info.start.toISOString()}|${info.end.toISOString()}|${info.view.type}`
+    const startKey = wallDate(info.startStr)
+    const endKey = wallDate(info.endStr)
+    const key = `${startKey}|${endKey}|${info.view.type}`
     if (key === lastRangeKey.current) return
     lastRangeKey.current = key
-    setRange({ start: info.start, end: info.end, viewType: info.view.type })
+    setRange({ startKey, endKey, viewType: info.view.type })
   }
 
   // Escape closes the popover / edit dialog (the confirm & cancel dialogs handle their own)
@@ -133,14 +151,14 @@ export default function CalendarView({ students, plans, refreshKey = 0 }) {
     const evts = []
 
     groups.forEach(g => {
-      const start = new Date(g.scheduledAt)
+      const startMs = new Date(g.scheduledAt).getTime()
       const count = g.members?.length || 0
       const allAttended = count > 0 && g.members.every(m => m.attendedAt)
       evts.push({
         id: `group-${g.id}`,
         title: `${g.title} · ${count}`,
-        start,
-        end: new Date(start.getTime() + (g.durationMins || 60) * 60000),
+        start: ukNaive(startMs),
+        end: ukNaive(startMs + (g.durationMins || 60) * 60000),
         classNames: ['fc-group-event'],
         backgroundColor: allAttended ? STATUS_COLORS.attended.bg : GROUP_COLORS.bg,
         borderColor: GROUP_COLORS.border,
@@ -151,17 +169,22 @@ export default function CalendarView({ students, plans, refreshKey = 0 }) {
       })
     })
 
+    const numbers = sessionNumbers(sessions.filter(s => !s.groupSessionId))
     sessions.forEach(s => {
       if (s.groupSessionId) return // shown as part of its group
       const student = s.lessonPlan?.student
-      const colors = SUBJECT_COLORS[student?.subjectFocus] || SUBJECT_COLORS.default
+      const colors = SUBJECT_COLORS[s.subject || student?.subjectFocus] || SUBJECT_COLORS.default
       const attended = !!s.attendedAt
       const past = !attended && new Date(s.scheduledAt) < new Date()
+      const subject = subjectLabel(s.subject)
+      const sessionLabel = numbers.get(s.id) || null
+      const startMs = new Date(s.scheduledAt).getTime()
 
       evts.push({
         id: `session-${s.id}`,
-        title: student?.name || 'Lesson',
-        start: s.scheduledAt,
+        title: [student?.name || 'Lesson', subject, sessionLabel].filter(Boolean).join(' · '),
+        start: ukNaive(startMs),
+        end: ukNaive(startMs + (s.durationMins || 60) * 60000),
         backgroundColor: attended ? STATUS_COLORS.attended.bg : past ? STATUS_COLORS.past.bg : colors.bg,
         borderColor:     attended ? STATUS_COLORS.attended.border : past ? STATUS_COLORS.past.border : colors.border,
         textColor:       attended ? STATUS_COLORS.attended.text : past ? STATUS_COLORS.past.text : colors.text,
@@ -177,6 +200,9 @@ export default function CalendarView({ students, plans, refreshKey = 0 }) {
           planTitle: s.lessonPlan?.title,
           planId: s.lessonPlan?.id,
           subjectFocus: student?.subjectFocus,
+          subject: s.subject || null,
+          sessionLabel,
+          scheduledAt: s.scheduledAt,
           attended,
           past,
           notes: s.notes,
@@ -187,27 +213,36 @@ export default function CalendarView({ students, plans, refreshKey = 0 }) {
 
     if (!isMonth || !range) return evts
 
-    const sessionDates = new Set(
-      sessions.map(s => localDateKey(new Date(s.scheduledAt)) + '-' + s.lessonPlan?.studentId)
-    )
-    const todayKey = localDateKey(new Date())
-    const byDay = {} // dateKey -> [{ student, dbDay, plan }]
+    // Real sessions by student + UK day, to see which regular slots are covered
+    const byStudentDay = new Map()
+    sessions.forEach(s => {
+      const k = `${s.lessonPlan?.studentId}|${localDateKey(s.scheduledAt)}`
+      if (!byStudentDay.has(k)) byStudentDay.set(k, [])
+      byStudentDay.get(k).push(s)
+    })
+    const todayKey = todayUk()
+    const byDay = {} // dateKey -> [{ student, dbDay, slot, plan }]
     students.forEach(student => {
-      const days = student.lessonDays || []
-      days.forEach(dbDay => {
-        const jsDay = dbDayToJsDay(dbDay)
-        getDatesForDay(jsDay, range.start, range.end).forEach(date => {
-          if (localDateKey(date) < todayKey) return // only upcoming days need a session
-          const key = localDateKey(date)
-          if (sessionDates.has(key + '-' + student.id)) return
-          const plan = plans.find(p => p.studentId === student.id && p.lessonDayOfWeek === dbDay && p.status === 'active')
-          ;(byDay[key] ||= []).push({ student, dbDay, plan })
+      // Prefer the full weekly slots (day + time + subject); fall back to bare days
+      const slots = sortSlots(student.slots?.length ? student.slots : toSlots(student.lessonDays))
+      slots.forEach(slot => {
+        const dbDay = slot.dayOfWeek
+        datesForDay(dbDay, range.startKey, range.endKey).forEach(key => {
+          if (key < todayKey) return // only upcoming days need a session
+          const existing = byStudentDay.get(`${student.id}|${key}`) || []
+          const covered = existing.some(s =>
+            (slot.id != null && s.slotId === slot.id) ||
+            (slot.time ? ukTimeKey(s.scheduledAt) === slot.time : true))
+          if (covered) return
+          const plan = plans.find(p => p.studentId === student.id && p.status === 'active' && (p.lessonDayOfWeek === dbDay || p.lessonDayOfWeek == null))
+            || plans.find(p => p.studentId === student.id && p.status === 'active')
+          ;(byDay[key] ||= []).push({ student, dbDay, slot, plan })
         })
       })
     })
     Object.entries(byDay).forEach(([key, slots]) => {
-      slots.sort((a, b) => a.student.name.localeCompare(b.student.name))
-      const names = slots.map(x => x.student.name.split(' ')[0])
+      slots.sort((a, b) => String(a.slot.time || '99').localeCompare(String(b.slot.time || '99')) || a.student.name.localeCompare(b.student.name))
+      const names = slots.map(x => [x.student.name.split(' ')[0], x.slot.time, subjectLabel(x.slot.subject)].filter(Boolean).join(' '))
       evts.push({
         id: `regular-${key}`,
         title: `Regular: ${names.join(', ')}`,
@@ -229,9 +264,9 @@ export default function CalendarView({ students, plans, refreshKey = 0 }) {
   const { slotMin, slotMax } = useMemo(() => {
     let min = 7, max = 22
     ;[...sessions, ...groups].forEach(x => {
-      const d = new Date(x.scheduledAt)
-      const start = d.getHours()
-      const end = Math.ceil(start + d.getMinutes() / 60 + (x.durationMins || 60) / 60)
+      const p = ukParts(x.scheduledAt)
+      const start = p.hour
+      const end = Math.ceil(start + p.minute / 60 + (x.durationMins || 60) / 60)
       min = Math.min(min, start)
       max = Math.max(max, Math.min(24, end))
     })
@@ -268,7 +303,7 @@ export default function CalendarView({ students, plans, refreshKey = 0 }) {
   function handleEventClick(info) {
     const p = info.event.extendedProps
     if (p.kind === 'group') { setOpenGroupId(p.groupId); return }
-    setSelectedEvent({ ...p, date: p.kind === 'regular' ? p.date : info.event.startStr })
+    setSelectedEvent({ ...p, date: p.kind === 'regular' ? p.date : p.scheduledAt })
   }
 
   async function handleEventDrop(info) {
@@ -283,7 +318,7 @@ export default function CalendarView({ students, plans, refreshKey = 0 }) {
     }
     setMessage(null)
     try {
-      const res = await rescheduleSession(props.sessionId, info.event.start.toISOString(), {}, confirm)
+      const res = await rescheduleSession(props.sessionId, wallToIso(info.event.startStr), {}, confirm)
       if (!res) { info.revert(); return }
       if (res.merged) setMessage({ kind: 'ok', text: `${props.studentName}'s lessons were merged into ${fmtWhen(res.scheduledAt)}.` })
       await loadSessions()
@@ -297,19 +332,20 @@ export default function CalendarView({ students, plans, refreshKey = 0 }) {
   async function moveGroup(info, props) {
     setMessage(null)
     let applyTo = 'this'
+    const newIso = wallToIso(info.event.startStr)
     if (props.seriesId) {
       applyTo = await askApplyTo({
         title: 'Move group session',
-        message: `Move ${props.title} to ${fmtWhen(info.event.start)}?`,
+        message: `Move ${props.title} to ${fmtWhen(newIso)}?`,
         confirmLabel: 'Move',
       })
       if (!applyTo) { info.revert(); return }
     }
     try {
-      const res = await api.put(`/groups/${props.groupId}`, { scheduledAt: info.event.start.toISOString(), applyTo })
+      const res = await api.put(`/groups/${props.groupId}`, { scheduledAt: newIso, applyTo })
       setMessage({ kind: 'ok', text: res.data?.updated > 1
         ? `${props.title} moved, with ${res.data.updated - 1} following session${res.data.updated === 2 ? '' : 's'}.`
-        : `${props.title} moved to ${fmtWhen(info.event.start)}.` })
+        : `${props.title} moved to ${fmtWhen(newIso)}.` })
       await loadSessions()
     } catch (e) {
       info.revert()
@@ -319,11 +355,10 @@ export default function CalendarView({ students, plans, refreshKey = 0 }) {
 
   // Clicking an empty day (month) or slot (week/day) starts a new group session there
   function handleDateClick(info) {
-    const pad = n => String(n).padStart(2, '0')
-    const d = info.date
+    // dateStr is the clicked wall-clock, which the calendar shows as UK time
     setCreateAt({
-      date: localDateKey(d),
-      time: info.allDay ? undefined : `${pad(d.getHours())}:${pad(d.getMinutes())}`,
+      date: wallDate(info.dateStr),
+      time: info.allDay ? undefined : wallTime(info.dateStr),
     })
   }
 
@@ -331,12 +366,10 @@ export default function CalendarView({ students, plans, refreshKey = 0 }) {
     if (selectedEvent?.kind !== 'session') return
     const s = sessions.find(x => x.id === selectedEvent.sessionId)
     if (!s) return
-    const dt = new Date(s.scheduledAt)
-    const pad = n => String(n).padStart(2, '0')
     setEditSession({
       id: s.id,
       studentName: selectedEvent.studentName,
-      scheduledAt: `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`,
+      scheduledAt: ukDateTimeInput(s.scheduledAt), // UK wall-clock for the input
       durationMins: s.durationMins || 60,
       notes: s.notes || ''
     })
@@ -348,7 +381,7 @@ export default function CalendarView({ students, plans, refreshKey = 0 }) {
     setSavingEdit(true)
     setMessage(null)
     try {
-      const res = await rescheduleSession(editSession.id, new Date(editSession.scheduledAt).toISOString(), {
+      const res = await rescheduleSession(editSession.id, ukInputToIso(editSession.scheduledAt), {
         durationMins: editSession.durationMins ? parseInt(editSession.durationMins) : null,
         notes: editSession.notes || null
       }, confirm)
@@ -394,8 +427,8 @@ export default function CalendarView({ students, plans, refreshKey = 0 }) {
       <style>{CALENDAR_CSS}</style>
 
       <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-        <p className="text-xs text-gray-500">Click an empty day to add a group session there.</p>
-        <button onClick={() => setCreateAt({ date: localDateKey() })} className="btn-secondary btn-sm">
+        <p className="text-xs text-gray-500">All times are UK time. Click an empty day to add a group session there.</p>
+        <button onClick={() => setCreateAt({ date: todayUk() })} className="btn-secondary btn-sm">
           <Users className="icon-sm" aria-hidden /> New group session
         </button>
       </div>
@@ -408,7 +441,7 @@ export default function CalendarView({ students, plans, refreshKey = 0 }) {
           { label: 'English session', swatch: SUBJECT_COLORS.english },
           { label: 'Attended', swatch: STATUS_COLORS.attended },
           { label: 'Past, no record', swatch: STATUS_COLORS.past },
-          { label: 'Regular day, no session yet (month view)', swatch: REGULAR_SWATCH, dashed: true },
+          { label: 'Regular lesson, no session yet (month view)', swatch: REGULAR_SWATCH, dashed: true },
         ].map(l => (
           <div key={l.label} className="flex items-center gap-1.5">
             <span className={`w-3 h-3 rounded-sm border ${l.dashed ? 'border-dashed' : ''} ${l.thick ? 'border-l-[3px]' : ''}`} style={{ backgroundColor: l.swatch.bg, borderColor: l.dashed ? '#a8a29e' : l.swatch.border }} aria-hidden />
@@ -471,7 +504,7 @@ export default function CalendarView({ students, plans, refreshKey = 0 }) {
                 <h3 className="section-title truncate">
                   {selectedEvent.kind === 'session'
                     ? selectedEvent.studentName
-                    : new Date(selectedEvent.date + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
+                    : fmtDayLong(ukToIso(selectedEvent.date, '12:00'))}
                 </h3>
               </div>
               <button onClick={() => setSelectedEvent(null)} className="btn-ghost -mr-2 -mt-1" aria-label="Close" title="Close">
@@ -483,10 +516,15 @@ export default function CalendarView({ students, plans, refreshKey = 0 }) {
               <>
                 <p className="text-sm text-gray-600 mb-3">No session has been created yet for these regular lessons.</p>
                 <ul className="divide-y divide-gray-100 border-y border-gray-100">
-                  {selectedEvent.slots.map(({ student, dbDay, plan }) => (
-                    <li key={student.id} className="py-2.5 flex items-center gap-2">
+                  {selectedEvent.slots.map(({ student, dbDay, slot, plan }, i) => (
+                    <li key={`${student.id}-${slot.id ?? i}`} className="py-2.5 flex items-center gap-2">
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-900 truncate">{student.name}</p>
+                        <p className="text-sm font-medium text-gray-900 truncate">
+                          {student.name}
+                          {(slot.time || slot.subject) && (
+                            <span className="font-normal text-gray-600 tabular-nums"> · {[slot.time, subjectLabel(slot.subject)].filter(Boolean).join(' ')}</span>
+                          )}
+                        </p>
                         <p className="text-xs text-gray-500 truncate">{plan ? plan.title : 'No active plan for this day'}</p>
                       </div>
                       <button onClick={() => navigate(`${basePath}/students/${student.id}`)} className="btn-ghost btn-sm" aria-label={`View ${student.name}`}>
@@ -511,18 +549,21 @@ export default function CalendarView({ students, plans, refreshKey = 0 }) {
                   <div className="flex justify-between gap-4 py-2.5">
                     <dt className="text-gray-500">Date</dt>
                     <dd className="font-medium text-gray-900 text-right">
-                      {new Date(selectedEvent.date).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
+                      {fmtDayLong(selectedEvent.date)}
                       <span className="block text-xs font-normal text-gray-500">
-                        {new Date(selectedEvent.date).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                        {fmtTime(selectedEvent.date)} UK
                         {selectedEvent.durationMins ? ` · ${selectedEvent.durationMins} min` : ''}
                       </span>
                     </dd>
                   </div>
 
-                  {selectedEvent.subjectFocus && (
+                  {(selectedEvent.subject || selectedEvent.subjectFocus) && (
                     <div className="flex justify-between gap-4 py-2.5">
                       <dt className="text-gray-500">Subject</dt>
-                      <dd className="font-medium text-gray-900 capitalize">{selectedEvent.subjectFocus}</dd>
+                      <dd className="font-medium text-gray-900 capitalize">
+                        {selectedEvent.subject ? subjectLabel(selectedEvent.subject) : selectedEvent.subjectFocus}
+                        {selectedEvent.sessionLabel && <span className="font-normal text-gray-500"> · {selectedEvent.sessionLabel}</span>}
+                      </dd>
                     </div>
                   )}
                   {selectedEvent.tutorName && (
@@ -561,6 +602,14 @@ export default function CalendarView({ students, plans, refreshKey = 0 }) {
                       <CalendarClock className="icon" aria-hidden /> Reschedule
                     </button>
                   )}
+                  {!selectedEvent.attended && selectedEvent.planId && (
+                    <button
+                      onClick={() => navigate(`${basePath}/lesson-plans/${selectedEvent.planId}/builder?session=${selectedEvent.sessionId}`)}
+                      className="btn-secondary flex-1"
+                    >
+                      <NotebookPen className="icon" aria-hidden /> Plan
+                    </button>
+                  )}
                   <button
                     onClick={() => navigate(`${basePath}/lesson-plans/${selectedEvent.planId}/live`)}
                     className="btn-secondary flex-1"
@@ -594,7 +643,7 @@ export default function CalendarView({ students, plans, refreshKey = 0 }) {
             <h3 className="section-title mb-4">Reschedule session</h3>
             <div className="space-y-3">
               <div>
-                <label className="label" htmlFor="cal-edit-when">Date and time</label>
+                <label className="label" htmlFor="cal-edit-when">Date and time (UK)</label>
                 <input
                   id="cal-edit-when"
                   type="datetime-local"

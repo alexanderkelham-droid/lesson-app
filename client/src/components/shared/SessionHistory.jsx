@@ -4,6 +4,8 @@ import SheetLink from './SheetLink'
 import api from '../../lib/api'
 import LoadingSpinner from './LoadingSpinner'
 import { printPlanUrl } from '../../lib/print'
+import { fmtDateLong, fmtTime } from '../../lib/datetime'
+import { sameDayOrdinals, sessionNumberLabel, startOfUkDay, subjectLabel } from '../../lib/sessions'
 
 // Score colours: >=70 forest, 40-69 amber, <40 red (rounded first)
 function scoreClass(score) {
@@ -52,7 +54,8 @@ export default function SessionHistory({ studentId }) {
   if (error) return <div className="card text-center text-red-700">{error}</div>
 
   const now = new Date()
-  const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
+  const endOfToday = startOfUkDay(1) // midnight tonight, UK time
+  const ordinals = sameDayOrdinals(sessions)
   const filteredSessions = sessions
     .filter(s => {
       const at = new Date(s.scheduledAt)
@@ -145,7 +148,7 @@ export default function SessionHistory({ studentId }) {
 
         <div className="space-y-4">
           {filteredSessions.map(session => (
-            <HistorySession key={session.id} session={session} now={now} />
+            <HistorySession key={session.id} session={session} now={now} ordinal={ordinals[session.id]} />
           ))}
           {filteredSessions.length === 0 && (
             <p className="text-center text-gray-500 py-8 text-sm">No sessions match this filter.</p>
@@ -166,7 +169,7 @@ function Stat({ label, value, color, srText }) {
   )
 }
 
-function HistorySession({ session, now }) {
+function HistorySession({ session, now, ordinal }) {
   const attended  = !!session.attendedAt
   const past      = new Date(session.scheduledAt) < now
   const missed    = past && !attended
@@ -177,9 +180,10 @@ function HistorySession({ session, now }) {
   const responses = items.flatMap(i => i.studentResponses || []).filter(r => r.score != null)
   const avgScore = responses.length ? Math.round(responses.reduce((s, r) => s + r.score, 0) / responses.length) : null
 
-  const dt = new Date(session.scheduledAt)
-  const dateStr = dt.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
-  const timeStr = dt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+  // Always UK time, whatever the device's time zone
+  const dateStr = fmtDateLong(session.scheduledAt)
+  const timeStr = fmtTime(session.scheduledAt)
+  const subject = subjectLabel(session.subject)
 
   const dotColor = attended ? 'bg-forest-600' : missed ? 'bg-amber-500' : 'bg-gray-400'
 
@@ -195,7 +199,11 @@ function HistorySession({ session, now }) {
       }`}>
         <div className="flex items-start justify-between gap-2 mb-2 flex-wrap">
           <div>
-            <p className="font-semibold text-gray-900 text-sm">{dateStr}</p>
+            <p className="font-semibold text-gray-900 text-sm flex items-center gap-2 flex-wrap">
+              {dateStr}
+              {ordinal && <span className="badge">{sessionNumberLabel(ordinal)}</span>}
+              {subject && <span className="badge">{subject}</span>}
+            </p>
             <p className="text-xs text-gray-500">
               {timeStr}
               {session.durationMins && ` · ${session.durationMins} min`}

@@ -4,16 +4,8 @@ import api from '../../lib/api'
 import useSheetHistory from '../../hooks/useSheetHistory'
 import SheetHistoryBadge from './SheetHistoryBadge'
 import { useTopEscape } from '../../lib/escape'
-
-const CUSTOM_TYPES = [
-  { value: 'ixl_maths', label: 'IXL Maths' },
-  { value: 'ixl_english', label: 'IXL English' },
-  { value: 'paper', label: 'Paper activity' },
-  { value: 'other', label: 'Custom task' },
-]
-
-const pad = n => String(n).padStart(2, '0')
-const localDate = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+import { CUSTOM_TYPES, customTypeLabel } from '../../lib/customTypes'
+import { todayUk, ukToIso } from '../../lib/datetime'
 
 /**
  * Record a lesson that already happened (e.g. before the portal existed):
@@ -21,7 +13,7 @@ const localDate = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getD
  * next lesson; history, sheet memory and the AI planner see it straight away.
  */
 export default function PastLessonModal({ planId, studentName, defaultTime = '16:00', onClose, onSaved }) {
-  const today = localDate(new Date())
+  const today = todayUk() // UK calendar day
   const [date, setDate] = useState(today)
   const [time, setTime] = useState(defaultTime)
   const [duration, setDuration] = useState(60)
@@ -54,7 +46,7 @@ export default function PastLessonModal({ planId, studentName, defaultTime = '16
     e?.preventDefault()
     const t = customTitle.trim()
     if (!t) return
-    setRows(r => [...r, { key: `c${Date.now()}`, customTitle: t, customType, title: t, meta: CUSTOM_TYPES.find(c => c.value === customType)?.label, done: true, score: '' }])
+    setRows(r => [...r, { key: `c${Date.now()}`, customTitle: t, customType, title: t, meta: customTypeLabel(customType), done: true, score: '' }])
     setCustomTitle('')
   }
 
@@ -70,7 +62,7 @@ export default function PastLessonModal({ planId, studentName, defaultTime = '16
     setSaving(true)
     try {
       const res = await api.post(`/lesson-plans/${planId}/past-lesson`, {
-        scheduledAt: new Date(`${date}T${time || '16:00'}:00`).toISOString(),
+        scheduledAt: ukToIso(date, time || '16:00'), // entered as UK time
         durationMins: duration ? Number(duration) : null,
         notes: notes || null,
         items: rows.map(r => ({
@@ -95,7 +87,7 @@ export default function PastLessonModal({ planId, studentName, defaultTime = '16
             <h2 className="section-title flex items-center gap-2"><History className="icon-lg text-redwood-700" aria-hidden /> Record a past lesson</h2>
             <p className="text-sm text-gray-500">Add a lesson {studentName ? `${studentName} ` : ''}has already had, so the next one can build on it.</p>
           </div>
-          <button onClick={onClose} className="btn-ghost p-1" aria-label="Close"><X className="icon" /></button>
+          <button onClick={onClose} className="btn-ghost p-1" aria-label="Close" title="Close"><X className="icon" aria-hidden /></button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-5">
@@ -105,7 +97,7 @@ export default function PastLessonModal({ planId, studentName, defaultTime = '16
               <input id="pl-date" type="date" max={today} value={date} onChange={e => setDate(e.target.value)} className="input" />
             </div>
             <div>
-              <label className="label" htmlFor="pl-time">Time</label>
+              <label className="label" htmlFor="pl-time">Time (UK)</label>
               <input id="pl-time" type="time" value={time} onChange={e => setTime(e.target.value)} className="input" />
             </div>
             <div>
@@ -118,7 +110,7 @@ export default function PastLessonModal({ planId, studentName, defaultTime = '16
           <div>
             <p className="label">What was done</p>
             {rows.length === 0 ? (
-              <p className="text-sm text-gray-500 card-muted">Nothing added yet. Search the library below, or type an IXL or paper task.</p>
+              <p className="text-sm text-gray-500 card-muted">Nothing added yet. Search the library below, or add another task.</p>
             ) : (
               <ul className="divide-y divide-gray-100 border border-gray-200 rounded-xl bg-white">
                 {rows.map((r, i) => (
@@ -140,7 +132,7 @@ export default function PastLessonModal({ planId, studentName, defaultTime = '16
                       className="input w-24 text-sm" aria-label={`Score for ${r.title}`}
                     />
                     <button type="button" onClick={() => setRows(x => x.filter(y => y.key !== r.key))} className="btn-ghost p-1" aria-label={`Remove ${r.title}`} title="Remove">
-                      <Trash2 className="icon-sm" />
+                      <Trash2 className="icon-sm" aria-hidden />
                     </button>
                   </li>
                 ))}
@@ -176,7 +168,7 @@ export default function PastLessonModal({ planId, studentName, defaultTime = '16
 
           {/* Add custom */}
           <form onSubmit={addCustom}>
-            <label className="label" htmlFor="pl-custom">Or add an IXL / paper task</label>
+            <label className="label" htmlFor="pl-custom">Or add another task (IXL, Corbett Maths, 11+, paper, homework)</label>
             <div className="flex flex-wrap gap-2">
               <select value={customType} onChange={e => setCustomType(e.target.value)} className="input w-auto text-sm" aria-label="Task type">
                 {CUSTOM_TYPES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}

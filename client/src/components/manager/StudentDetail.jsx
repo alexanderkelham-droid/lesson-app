@@ -4,19 +4,49 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import Navbar from '../shared/Navbar'
 import LoadingSpinner from '../shared/LoadingSpinner'
-import AddStudentModal from './AddStudentModal'
+import AddUserModal from './AddUserModal'
 import ConfirmModal, { CopyableText } from '../shared/ConfirmModal'
 import SessionsPanel from '../shared/SessionsPanel'
 import SessionHistory from '../shared/SessionHistory'
 import PrintPackMenu from '../print/PrintPackMenu'
 import AiPlanModal from '../shared/AiPlanModal'
 import PastLessonModal from '../shared/PastLessonModal'
-import { ArrowLeft, ArrowRight, BookOpen, CalendarDays, Check, ClipboardList, FileText, History, KeyRound, Pencil, Play, Plus, Sparkles, StickyNote, Trash2, UserX, Zap } from 'lucide-react'
+import { ArrowLeft, ArrowRight, BookOpen, CalendarDays, Check, ClipboardList, Copy, FileText, GraduationCap, History, KeyRound, Pencil, Play, Plus, Sparkles, StickyNote, Trash2, UserX, Zap } from 'lucide-react'
 import api from '../../lib/api'
+import { fmtDate, fmtDayTime } from '../../lib/datetime'
+import { fmtSlot, sortSlots, subjectLabel, sessionNumbers } from '../../lib/dates'
 
-const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+const CUSTOM_LABELS = {
+  ixl_maths: 'IXL Maths', ixl_english: 'IXL English', corbett_maths: 'Corbett Maths',
+  eleven_plus: '11+', homework: 'Homework', paper: 'Paper activity', other: 'Custom task',
+}
 
-const CUSTOM_LABELS = { ixl_maths: 'IXL Maths', ixl_english: 'IXL English', paper: 'Paper activity' }
+// IXL username with a copy button
+function IxlUsername({ username }) {
+  const [copied, setCopied] = useState(false)
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(username)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch { /* clipboard blocked: the name is still visible to copy by hand */ }
+  }
+  return (
+    <span className="badge gap-1">
+      IXL: <span className="font-mono text-gray-900">{username}</span>
+      <button
+        type="button"
+        onClick={copy}
+        className="ml-0.5 -mr-1 p-0.5 rounded text-gray-500 hover:text-gray-900 hover:bg-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-redwood-500"
+        aria-label={copied ? 'IXL username copied' : 'Copy IXL username'}
+        title={copied ? 'Copied' : 'Copy IXL username'}
+      >
+        {copied ? <Check className="icon-sm text-forest-700" aria-hidden /> : <Copy className="icon-sm" aria-hidden />}
+      </button>
+      <span className="sr-only" aria-live="polite">{copied ? 'Copied' : ''}</span>
+    </span>
+  )
+}
 
 // Score colours: >=70 forest, 40-69 amber, <40 red (rounded first)
 function scoreClass(score) {
@@ -41,6 +71,7 @@ export default function StudentDetail() {
   const [plans, setPlans]       = useState([])
   const [activePlan, setActivePlan] = useState(null)
   const [logs, setLogs]         = useState([])
+  const [planSessions, setPlanSessions] = useState([])
   const [loading, setLoading]   = useState(true)
   const [showEdit, setShowEdit] = useState(false)
   const [tab, setTab] = useState('plan') // 'plan' | 'history'
@@ -132,8 +163,15 @@ export default function StudentDetail() {
       setActivePlan(active)
 
       if (active) {
-        const logsRes = await api.get(`/lesson-plans/${active.id}/follow-up-logs`)
+        const [logsRes, detailRes] = await Promise.all([
+          api.get(`/lesson-plans/${active.id}/follow-up-logs`),
+          api.get(`/lesson-plans/${active.id}`).catch(() => null),
+        ])
         setLogs(logsRes.data)
+        setPlanSessions(detailRes?.data?.sessions || [])
+      } else {
+        setLogs([])
+        setPlanSessions([])
       }
     } catch (e) {
       // 403/404: show the "not found" state below
@@ -274,7 +312,14 @@ export default function StudentDetail() {
   const totalTime   = completedItems.reduce((sum, i) => sum + (i.studentResponses?.[0]?.timeSpentSeconds ?? 0), 0)
   const formatMins  = secs => secs > 0 && secs < 60 ? '<1m' : `${Math.round(secs / 60)}m`
 
-  const lessonDays = student.lessonDays?.map(d => typeof d === 'object' ? d.dayOfWeek : d) || []
+  const slots = sortSlots(student.lessonDays)
+
+  // Next lesson not yet taught (for the "plan it" link)
+  const nowMs = Date.now()
+  const nextSession = planSessions
+    .filter(s => !s.attendedAt && new Date(s.scheduledAt).getTime() + (s.durationMins || 60) * 60000 > nowMs)
+    .sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt))[0] || null
+  const nextLabel = nextSession ? sessionNumbers(planSessions, () => student.id).get(nextSession.id) : null
 
   const TH = 'text-left px-3 py-2.5 eyebrow whitespace-nowrap'
 
@@ -301,15 +346,43 @@ export default function StudentDetail() {
                   {student.age && (
                     <span className="badge">Age {student.age}</span>
                   )}
+                  {student.schoolYear && (
+                    <span className="badge">
+                      <GraduationCap className="icon-sm text-gray-400" aria-hidden />{student.schoolYear}
+                    </span>
+                  )}
                   {student.subjectFocus && (
                     <span className="badge capitalize">{student.subjectFocus}</span>
                   )}
-                  {lessonDays.map(d => (
-                    <span key={d} className="badge">
-                      <CalendarDays className="icon-sm text-gray-400" aria-hidden />{DAY_NAMES[d]}
-                    </span>
-                  ))}
+                  {student.ixlUsername && <IxlUsername username={student.ixlUsername} />}
                 </div>
+                {slots.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5 mt-2" aria-label="Weekly lessons (UK time)">
+                    <span className="eyebrow mr-1">Weekly</span>
+                    {slots.map((sl, i) => (
+                      <span key={sl.id ?? i} className="badge tabular-nums whitespace-nowrap" title={sl.durationMins ? `${sl.durationMins} minutes` : undefined}>
+                        <CalendarDays className="icon-sm text-gray-400" aria-hidden />
+                        {fmtSlot(sl)}
+                        {!sl.time && <span className="text-amber-800">(no time)</span>}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {nextSession && activePlan && (
+                  <p className="text-sm text-gray-600 mt-2">
+                    Next lesson:{' '}
+                    <button
+                      type="button"
+                      onClick={() => navigate(`${basePath}/lesson-plans/${activePlan.id}/builder?session=${nextSession.id}`)}
+                      className="link font-medium"
+                      title="Plan this lesson"
+                    >
+                      {fmtDayTime(nextSession.scheduledAt)}
+                      {nextSession.subject ? ` · ${subjectLabel(nextSession.subject)}` : ''}
+                      {nextLabel ? ` · ${nextLabel}` : ''}
+                    </button>
+                  </p>
+                )}
               </div>
             </div>
             <div className="flex flex-wrap gap-2 sm:justify-end flex-shrink-0">
@@ -504,7 +577,7 @@ export default function StudentDetail() {
                           {resp?.timeSpentSeconds ? formatMins(resp.timeSpentSeconds) : <span className="text-gray-300">—</span>}
                         </td>
                         <td className="px-3 py-3 text-gray-500 text-xs hidden lg:table-cell tabular-nums whitespace-nowrap">
-                          {resp?.completedAt ? new Date(resp.completedAt).toLocaleDateString('en-GB') : <span className="text-gray-300">—</span>}
+                          {resp?.completedAt ? fmtDate(resp.completedAt) : <span className="text-gray-300">—</span>}
                         </td>
                         <td className="px-3 py-3 text-right">
                           {item.status !== 'completed' && (
@@ -553,7 +626,7 @@ export default function StudentDetail() {
                       Scored <strong className={scoreClass(log.studentScore)}>{Math.round(log.studentScore)}%</strong> on "{log.sourceSheet?.title}"
                       <ArrowRight className="icon-sm text-gray-400" aria-label="then" />
                       Added follow-up: "{log.followUpSheet?.title}"
-                      <span className="text-xs text-gray-500 ml-auto tabular-nums">{new Date(log.createdAt).toLocaleDateString('en-GB')}</span>
+                      <span className="text-xs text-gray-500 ml-auto tabular-nums">{fmtDate(log.createdAt)}</span>
                     </div>
                   ))}
                 </div>
@@ -583,8 +656,9 @@ export default function StudentDetail() {
       </main>
 
       {showEdit && (
-        <AddStudentModal
-          editStudent={{ ...student, lessonDays }}
+        <AddUserModal
+          editUser={student}
+          defaultRole="student"
           onClose={() => setShowEdit(false)}
           onSaved={() => {
             setShowEdit(false)

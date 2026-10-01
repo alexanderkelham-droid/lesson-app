@@ -3,15 +3,16 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const prisma = require('../prisma');
 const { auth, requireRole } = require('../middleware/auth');
-const { httpError, parseId, validateIdParam, isValidDayOfWeek, tutorPlanWhere } = require('../lib/access');
+const { httpError, parseId, validateIdParam, isValidDayOfWeek, isValidLessonTime, tutorPlanWhere } = require('../lib/access');
+const { refreshStudentSessions } = require('../lib/recurring-sessions');
 
 const router = express.Router();
 router.param('id', validateIdParam);
 
 const PUBLIC_USER_SELECT = {
   id: true, email: true, name: true, role: true, age: true,
-  subjectFocus: true, createdAt: true,
-  lessonDays: { select: { dayOfWeek: true }, orderBy: { dayOfWeek: 'asc' } }
+  subjectFocus: true, schoolYear: true, ixlUsername: true, createdAt: true,
+  lessonDays: { select: { id: true, dayOfWeek: true, time: true, subject: true, durationMins: true }, orderBy: [{ dayOfWeek: 'asc' }, { time: 'asc' }] }
 };
 
 const MIN_PASSWORD_LENGTH = 8;
@@ -51,6 +52,8 @@ function profileFields(body, { isStudent }) {
         data.age = age;
       }
     }
+    if (body.schoolYear !== undefined) data.schoolYear = body.schoolYear ? String(body.schoolYear).slice(0, 30) : null;
+    if (body.ixlUsername !== undefined) data.ixlUsername = body.ixlUsername ? String(body.ixlUsername).trim().slice(0, 80) : null;
     if (body.subjectFocus !== undefined) {
       if (body.subjectFocus && !['maths', 'english', 'both'].includes(body.subjectFocus)) {
         throw httpError(400, 'subjectFocus must be maths, english or both');
@@ -61,12 +64,52 @@ function profileFields(body, { isStudent }) {
   return data;
 }
 
+const SLOT_SUBJECTS = ['maths', 'english', '11plus', 'other'];
+
+// Weekly lesson slots. Accepts the old shape (array of day numbers) or
+// [{ dayOfWeek, time: 'HH:MM', subject, durationMins }]. Several per day allowed.
 function parseLessonDays(lessonDays) {
   if (lessonDays === undefined) return undefined;
   if (!Array.isArray(lessonDays)) throw httpError(400, 'lessonDays must be an array');
-  const days = [...new Set(lessonDays.map(Number))];
-  if (!days.every(isValidDayOfWeek)) throw httpError(400, 'lessonDays values must be 0 (Mon) to 6 (Sun)');
-  return days;
+  const slots = lessonDays.map(d => (typeof d === 'object' && d !== null ? d : { dayOfWeek: d })).map(d => {
+    const dayOfWeek = Number(d.dayOfWeek);
+    if (!isValidDayOfWeek(dayOfWeek)) throw httpError(400, 'Lesson day must be 0 (Mon) to 6 (Sun)');
+    const time = d.time ? String(d.time) : null;
+    if (time && !isValidLessonTime(time)) throw httpError(400, 'Lesson time must be HH:MM (24h)');
+    const subject = d.subject ? String(d.subject) : null;
+    if (subject && !SLOT_SUBJECTS.includes(subject)) throw httpError(400, `Lesson subject must be one of ${SLOT_SUBJECTS.join(', ')}`);
+    const durationMins = d.durationMins ? Number(d.durationMins) : null;
+    if (durationMins != null && !(Number.isInteger(durationMins) && durationMins > 0 && durationMins <= 600)) throw httpError(400, 'Lesson length must be 1-600 minutes');
+    return { dayOfWeek, time: time ? time.padStart(5, '0') : null, subject, durationMins };
+  });
+  const seen = new Set();
+  for (const s of slots) {
+    const k = `${s.dayOfWeek}|${s.time}`;
+    if (seen.has(k)) throw httpError(400, 'Two lessons are set for the same day and time');
+    seen.add(k);
+  }
+  return slots;
+}
+
+// Replace a student's slots, keeping unchanged ones (and their lessons)
+async function syncSlots(tx, studentId, slots) {
+  const current = await tx.studentLessonDay.findMany({ where: { studentId } });
+  const key = s => `${s.dayOfWeek}|${s.time || ''}`;
+  const wanted = new Map(slots.map(s => [key(s), s]));
+  let changed = false;
+  for (const c of current) {
+    const w = wanted.get(key(c));
+    if (!w) { await tx.studentLessonDay.delete({ where: { id: c.id } }); changed = true; }
+    else {
+      if (w.subject !== c.subject || w.durationMins !== c.durationMins) {
+        await tx.studentLessonDay.update({ where: { id: c.id }, data: { subject: w.subject, durationMins: w.durationMins } });
+        await tx.lessonSession.updateMany({ where: { slotId: c.id, attendedAt: null }, data: { subject: w.subject } });
+      }
+      wanted.delete(key(c));
+    }
+  }
+  for (const w of wanted.values()) { await tx.studentLessonDay.create({ data: { studentId, ...w } }); changed = true; }
+  return changed; // a slot was added or removed (the timetable needs regenerating)
 }
 
 // GET /api/users - managers see everyone.
@@ -99,7 +142,8 @@ router.get('/students', requireRole('manager', 'tutor'), async (req, res, next) 
       where: { role: 'student' },
       select: {
         id: true, email: true, name: true, age: true, subjectFocus: true, createdAt: true,
-        lessonDays: { select: { dayOfWeek: true }, orderBy: { dayOfWeek: 'asc' } },
+        schoolYear: true, ixlUsername: true,
+        lessonDays: { select: { id: true, dayOfWeek: true, time: true, subject: true, durationMins: true }, orderBy: [{ dayOfWeek: 'asc' }, { time: 'asc' }] },
         studentPlans: {
           where: { status: 'active', ...planFilter },
           include: {
@@ -118,7 +162,9 @@ router.get('/students', requireRole('manager', 'tutor'), async (req, res, next) 
       const base = {
         id: s.id, email: s.email, name: s.name, age: s.age,
         subjectFocus: s.subjectFocus, createdAt: s.createdAt,
-        lessonDays: s.lessonDays.map(d => d.dayOfWeek),
+        schoolYear: s.schoolYear, ixlUsername: s.ixlUsername,
+        lessonDays: [...new Set(s.lessonDays.map(d => d.dayOfWeek))],
+        slots: s.lessonDays,
       };
       const plan = s.studentPlans[0] || null;
       if (!plan) return { ...base, plan: null, progress: 0, lastActivity: null, avgScore: null, flagged: false };
@@ -167,7 +213,7 @@ router.post('/', requireRole('manager'), async (req, res, next) => {
         role,
         passwordHash: await bcrypt.hash(String(password), 10),
         ...(lessonDays && lessonDays.length > 0 && {
-          lessonDays: { create: lessonDays.map(dayOfWeek => ({ dayOfWeek })) }
+          lessonDays: { create: lessonDays }
         })
       },
       select: PUBLIC_USER_SELECT
@@ -208,21 +254,15 @@ router.put('/:id', requireRole('manager'), async (req, res, next) => {
     const data = profileFields(req.body, { isStudent });
     const lessonDays = isStudent ? parseLessonDays(req.body.lessonDays) : undefined;
 
-    // Profile + lesson days updated atomically
-    const user = await prisma.$transaction(async (tx) => {
-      if (lessonDays !== undefined) {
-        await tx.studentLessonDay.deleteMany({ where: { studentId: targetId } });
-      }
-      return tx.user.update({
-        where: { id: targetId },
-        data: {
-          ...data,
-          ...(lessonDays !== undefined && { lessonDays: { create: lessonDays.map(dayOfWeek => ({ dayOfWeek })) } })
-        },
-        select: PUBLIC_USER_SELECT
-      });
+    // Profile + lesson slots updated atomically
+    const slotsChanged = await prisma.$transaction(async (tx) => {
+      const changed = lessonDays !== undefined ? await syncSlots(tx, targetId, lessonDays) : false;
+      await tx.user.update({ where: { id: targetId }, data });
+      return changed;
     });
-    res.json(user);
+    // New / removed slots: regenerate the upcoming timetable
+    if (slotsChanged) await refreshStudentSessions(targetId);
+    res.json(await prisma.user.findUnique({ where: { id: targetId }, select: PUBLIC_USER_SELECT }));
   } catch (err) {
     if (err.code === 'P2002') return res.status(400).json({ error: 'A user with that email already exists' });
     next(err);

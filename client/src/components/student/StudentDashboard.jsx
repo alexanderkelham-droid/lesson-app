@@ -6,7 +6,14 @@ import LoadingSpinner from '../shared/LoadingSpinner'
 import Tour from '../shared/Tour'
 import { studentTour } from '../shared/tourSteps'
 import api from '../../lib/api'
-import { Check, ChevronRight, ClipboardList, Hourglass, BookOpen, Radio, MessageSquareText, History } from 'lucide-react'
+import { Check, ChevronRight, ClipboardList, Hourglass, BookOpen, Radio, MessageSquareText, History, House } from 'lucide-react'
+import { fmtDayLong, fmtTime, todayUk, ukDateKey } from '../../lib/datetime'
+import { sessionNumbers, subjectLabel } from '../../lib/dates'
+
+const CUSTOM_TYPE_LABELS = {
+  ixl_maths: 'IXL Maths', ixl_english: 'IXL English', corbett_maths: 'Corbett Maths',
+  eleven_plus: '11+', homework: 'Homework', paper: 'Paper activity', other: 'Task',
+}
 
 // Score colour rule: >=70 forest, 40-69 amber, <40 red (rounded first)
 const scoreText = s => { const r = Math.round(s); return r >= 70 ? 'text-forest-700' : r >= 40 ? 'text-amber-700' : 'text-red-700' }
@@ -19,12 +26,18 @@ export default function StudentDashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError]   = useState('')
   const [tourForce, setTourForce] = useState(false)
+  const [planSessions, setPlanSessions] = useState([])
 
   useEffect(() => {
     api.get('/lesson-plans')
-      .then(res => {
+      .then(async res => {
         const active = res.data.find(p => p.status === 'active') || res.data[0] || null
         setPlan(active)
+        // Lesson times + subjects for the "next lesson" line
+        if (active) {
+          const detail = await api.get(`/lesson-plans/${active.id}`).catch(() => null)
+          setPlanSessions(detail?.data?.sessions || [])
+        }
       })
       .catch(() => setError('Failed to load your lesson plan.'))
       .finally(() => setLoading(false))
@@ -40,6 +53,7 @@ export default function StudentDashboard() {
   // not things they need to redo. If a sheet was carried over, the clone
   // in the upcoming session is what they'll see.
   const now = new Date()
+  const today = todayUk()
   const items = (plan?.items || [])
     .filter(i => {
       if (i.status === 'completed') return true
@@ -48,16 +62,23 @@ export default function StudentDashboard() {
       if (!i.session) return true // unscheduled
       // Keep if the session is upcoming or attended-but-incomplete-clone
       // (clone has its own future session)
-      return new Date(i.session.scheduledAt) >= new Date(now.getFullYear(), now.getMonth(), now.getDate())
+      return ukDateKey(i.session.scheduledAt) >= today
     })
     .sort((a, b) => a.sequenceOrder - b.sequenceOrder)
   const completed = items.filter(i => i.status === 'completed').length
   const total     = items.length
   const progress  = total > 0 ? Math.round((completed / total) * 100) : 0
-  const nextLesson = (plan?.items || [])
-    .map(i => i.session?.scheduledAt && !i.session.attendedAt ? new Date(i.session.scheduledAt) : null)
-    .filter(d => d && d.getTime() > now.getTime() - 2 * 60 * 60 * 1000)
-    .sort((a, b) => a - b)[0]
+  // Next lesson (UK time): from the plan's sessions, else from its items
+  const lessonPool = planSessions.length > 0
+    ? planSessions
+    : (plan?.items || []).map(i => i.session).filter(Boolean)
+  const nextSession = lessonPool
+    .filter(s => s.scheduledAt && !s.attendedAt && new Date(s.scheduledAt).getTime() > now.getTime() - 2 * 60 * 60 * 1000)
+    .sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt))[0] || null
+  const nextLesson = nextSession ? nextSession.scheduledAt : null
+  const nextExtra = nextSession
+    ? [subjectLabel(nextSession.subject), sessionNumbers(planSessions, () => 'me').get(nextSession.id)].filter(Boolean).join(', ')
+    : ''
   // A sheet set again after an earlier completed attempt is a revision
   const allItems = plan?.items || []
   const sheetOf = i => i.sheetId ?? i.sheet?.id
@@ -112,7 +133,7 @@ export default function StudentDashboard() {
                 Join live lesson with your tutor
                 {nextLesson && (
                   <span className="block text-sm font-normal text-white/85">
-                    Next lesson: {nextLesson.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' })} at {nextLesson.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                    Next lesson: {fmtDayLong(nextLesson)} at {fmtTime(nextLesson)}{nextExtra ? ` (${nextExtra})` : ''}
                   </span>
                 )}
               </span>
@@ -147,13 +168,8 @@ export default function StudentDashboard() {
                 const resp  = item.studentResponses?.[0]
                 const isCompleted = item.status === 'completed'
                 const isCustom = !item.sheet && item.customTitle
-                const customTypeLabels = {
-                  ixl_maths: 'IXL Maths',
-                  ixl_english: 'IXL English',
-                  paper: 'Paper activity',
-                  other: 'Task'
-                }
-                const customLabel = isCustom ? (customTypeLabels[item.customType] || 'Task') : null
+                const isHomework = isCustom && item.customType === 'homework'
+                const customLabel = isCustom ? (CUSTOM_TYPE_LABELS[item.customType] || 'Task') : null
                 const revision = !isCustom && isRevision(item)
 
                 return (
@@ -176,6 +192,8 @@ export default function StudentDashboard() {
                     }`}>
                       {isCompleted
                         ? <Check className="icon-lg" aria-label="Done" />
+                        : isHomework
+                          ? <House className="icon-lg" aria-hidden />
                         : isCustom
                           ? <ClipboardList className="icon-lg" aria-hidden />
                           : idx + 1}
@@ -188,7 +206,11 @@ export default function StudentDashboard() {
                             {isCustom ? item.customTitle : item.sheet.title}
                           </h4>
                           {isCustom ? (
-                            <span className="badge mt-1">{customLabel}</span>
+                            isHomework ? (
+                              <span className="badge mt-1"><House className="icon-sm" aria-hidden /> Homework</span>
+                            ) : (
+                              <span className="badge mt-1">{customLabel}</span>
+                            )
                           ) : (
                             <span className="text-sm text-gray-500 inline-flex items-center gap-2 flex-wrap">
                               {item.sheet.subject}
@@ -201,9 +223,11 @@ export default function StudentDashboard() {
                           )}
                           {isCustom && !isCompleted && (
                             <p className="text-sm text-gray-600 mt-1.5">
-                              {item.customType?.startsWith('ixl')
-                                ? 'Do this on IXL. Your tutor will tick it off.'
-                                : 'Your tutor will tick this off when it\'s done.'}
+                              {isHomework
+                                ? 'Do this at home before your next lesson.'
+                                : item.customType?.startsWith('ixl')
+                                  ? 'Do this on IXL. Your tutor will tick it off.'
+                                  : 'Your tutor will tick this off when it\'s done.'}
                             </p>
                           )}
                         </div>

@@ -2,14 +2,14 @@ import { useState, useEffect, useRef, useId, useCallback, useMemo } from 'react'
 import { Search, Users, X } from 'lucide-react'
 import api from '../../lib/api'
 import { useAuth } from '../../context/AuthContext'
-import { localDateKey } from '../../lib/dates'
+import { ukDateKey, ukTimeKey, ukToIso, todayUk } from '../../lib/datetime'
 import { useTopEscape } from '../../lib/escape'
 
 export const MAX_GROUP_SIZE = 5
 export const LOCATION_SUGGESTIONS = ['Retford', 'Doncaster', 'Online']
 
-const pad = n => String(n).padStart(2, '0')
-const timeKey = d => `${pad(d.getHours())}:${pad(d.getMinutes())}`
+// Date and time fields are UK wall-clock, whatever the device's zone
+const timeKey = ukTimeKey
 
 /**
  * Search + chips multi-select for students.
@@ -101,7 +101,7 @@ export default function GroupSessionModal({ group = null, defaultDate, defaultTi
 
   const [title, setTitle] = useState(group?.title || '')
   const [tutorId, setTutorId] = useState(group?.tutorId ? String(group.tutorId) : String(user?.id || ''))
-  const [date, setDate] = useState(start ? localDateKey(start) : defaultDate || localDateKey())
+  const [date, setDate] = useState(start ? ukDateKey(start) : defaultDate || todayUk())
   const [time, setTime] = useState(start ? timeKey(start) : defaultTime || '16:00')
   const [duration, setDuration] = useState(group?.durationMins || 60)
   const [location, setLocation] = useState(group?.location || '')
@@ -146,7 +146,7 @@ export default function GroupSessionModal({ group = null, defaultDate, defaultTi
     if (!whenValid) return setError('Choose a date and time.')
     const mins = parseInt(duration, 10)
     if (!Number.isInteger(mins) || mins < 5 || mins > 600) return setError('Duration must be between 5 and 600 minutes.')
-    const scheduledAt = new Date(`${date}T${time}:00`).toISOString()
+    const scheduledAt = ukToIso(date, time) // UK time -> instant (handles BST/GMT)
 
     setSaving(true)
     try {
@@ -226,7 +226,7 @@ export default function GroupSessionModal({ group = null, defaultDate, defaultTi
                 <input id={`${uid}-date`} type="date" value={date} onChange={e => setDate(e.target.value)} className="input" required />
               </div>
               <div>
-                <label className="label" htmlFor={`${uid}-time`}>Time (24h)</label>
+                <label className="label" htmlFor={`${uid}-time`}>Time (UK, 24h)</label>
                 <input id={`${uid}-time`} type="time" step={300} lang="en-GB" value={time} onChange={e => setTime(e.target.value)} className="input" required />
               </div>
               <div className="col-span-2 sm:col-span-1">

@@ -10,6 +10,8 @@ import Tour from '../shared/Tour'
 import { tutorTour } from '../shared/tourSteps'
 import { AlertTriangle, Plus, Search, Users } from 'lucide-react'
 import api from '../../lib/api'
+import { fmtDate } from '../../lib/datetime'
+import { fmtSlot, sortSlots } from '../../lib/dates'
 
 function ProgressBar({ value }) {
   const color = value >= 70 ? 'bg-forest-500' : value >= 40 ? 'bg-amber-400' : 'bg-red-400'
@@ -158,6 +160,10 @@ export default function TutorDashboard() {
                   <div
                     key={s.id}
                     onClick={() => navigate(`/tutor/students/${s.id}`)}
+                    role="link"
+                    tabIndex={0}
+                    aria-label={`Open ${s.name}`}
+                    onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`/tutor/students/${s.id}`) } }}
                     className={`card p-5 cursor-pointer hover:border-gray-300 hover:shadow-pop transition-shadow ${s.flagged ? 'border-amber-200' : ''}`}
                   >
                     <div className="flex items-start justify-between gap-2 mb-3">
@@ -168,18 +174,24 @@ export default function TutorDashboard() {
                         <div>
                           <p className="font-semibold text-gray-900">{s.name}</p>
                           <p className="text-xs text-gray-500">{s.email}</p>
+                          {s.schoolYear && <p className="text-xs text-gray-600 mt-0.5">{s.schoolYear}</p>}
                         </div>
                       </div>
                       {s.flagged && <span className="badge-warning">Needs attention</span>}
                     </div>
 
+                    {s.slots?.length > 0 && (
+                      <p className="text-xs text-gray-600 mb-2 tabular-nums">
+                        {sortSlots(s.slots).map(fmtSlot).join(' · ')}
+                      </p>
+                    )}
                     {s.plan ? (
                       <>
                         <p className="text-xs text-gray-500 mb-2 truncate">{s.plan.title}</p>
                         <ProgressBar value={s.progress} />
                         <div className="flex items-center justify-between mt-2">
                           <span className="text-xs text-gray-500">
-                            Last active: {s.lastActivity ? new Date(s.lastActivity).toLocaleDateString('en-GB') : 'Never'}
+                            Last active: {s.lastActivity ? fmtDate(s.lastActivity) : 'Never'}
                           </span>
                           {s.avgScore != null && (
                             <span className={`text-xs font-semibold ${Math.round(s.avgScore) >= 70 ? 'text-forest-700' : Math.round(s.avgScore) >= 40 ? 'text-amber-700' : 'text-red-700'}`}>

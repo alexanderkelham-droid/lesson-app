@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import api from '../lib/api'
+import { fmtDate } from '../lib/datetime'
 
 // The student's memory of every worksheet across all their plans:
 // { [sheetId]: { timesSet, completed, lastCompletedAt, lastScore, bestScore, planned } }
@@ -14,7 +15,8 @@ export default function useSheetHistory(planId) {
   return [history, reload]
 }
 
-const fmt = d => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+// UK date, e.g. "7 Oct 2026"
+const fmt = d => fmtDate(d)
 
 // One-line description for tooltips and confirm dialogs
 export function describeHistory(h) {

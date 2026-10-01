@@ -301,10 +301,58 @@ async function main() {
     const moved = (await T.get(`/lesson-plans/${planA.data.id}`)).data.items.find(i => i.id === cancelItem.data.id);
     check('moved item now sits in the next lesson', moved?.sessionId === c2.id, moved);
     const [, , c3] = future;
-    const clash = await T.put(`/sessions/${c3.id}`, { scheduledAt: new Date(new Date(c2.scheduledAt).getTime() + 3600000).toISOString() });
+    const clash = await T.put(`/sessions/${c3.id}`, { scheduledAt: new Date(new Date(c2.scheduledAt).getTime() + 1800000).toISOString() });
     check('rescheduling onto a day with a lesson asks first (409)', clash.status === 409 && clash.data.conflict?.id === c2.id, clash.data);
-    const merge = await T.put(`/sessions/${c3.id}`, { scheduledAt: new Date(new Date(c2.scheduledAt).getTime() + 3600000).toISOString(), merge: true });
+    const merge = await T.put(`/sessions/${c3.id}`, { scheduledAt: new Date(new Date(c2.scheduledAt).getTime() + 1800000).toISOString(), merge: true });
     check('confirming merges the two lessons', merge.status === 200 && merge.data.merged && merge.data.mergedInto === c2.id, merge.data);
+  }
+
+  section('Multiple weekly sessions, school year, IXL login');
+  {
+    const twin = await M.post('/users', {
+      name: 'QA Student Twin', email: email('twin'), password: 'longenough1', role: 'student',
+      schoolYear: 'Year 6', ixlUsername: 'qatwin123',
+      lessonDays: [
+        { dayOfWeek: 1, time: '16:00', subject: 'maths', durationMins: 60 },
+        { dayOfWeek: 1, time: '17:40', subject: 'english', durationMins: 60 },
+        { dayOfWeek: 3, time: '17:00', subject: 'english' },
+      ],
+    });
+    check('create student with 3 weekly slots (2 on one day)', twin.status === 201 && twin.data.lessonDays.length === 3, twin.data);
+    check('school year and IXL username saved', twin.data.schoolYear === 'Year 6' && twin.data.ixlUsername === 'qatwin123');
+    check('two lessons at the same day+time are rejected', (await M.post('/users', { name: 'QA Dup Slot', email: email('dupslot'), password: 'longenough1', lessonDays: [{ dayOfWeek: 1, time: '16:00' }, { dayOfWeek: 1, time: '16:00' }] })).status === 400);
+    const twinPlan = await M.post('/lesson-plans', { title: `[QA] Twin ${RUN}`, studentId: twin.data.id, tutorId: tutor.data.id, status: 'active' });
+    const tp = (await M.get(`/lesson-plans/${twinPlan.data.id}`)).data;
+    const subjects = new Set(tp.sessions.map(x => x.subject));
+    const tuesdays = tp.sessions.filter(x => new Date(x.scheduledAt).toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'Europe/London' }) === 'Tue');
+    const tueTimes = new Set(tuesdays.map(x => new Date(x.scheduledAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' })));
+    check('lessons generated for every slot with subjects', subjects.has('maths') && subjects.has('english') && tp.sessions.length >= 20, { n: tp.sessions.length, subjects: [...subjects] });
+    check('two Tuesday lessons at 16:00 and 17:40 UK', tueTimes.has('16:00') && tueTimes.has('17:40'), [...tueTimes]);
+    {
+      // Thursday English moved onto a Tuesday that has Maths 16:00 + English 17:40 (different slots), at 19:30
+      const uk = d => new Date(d).toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'Europe/London' });
+      const thu = tp.sessions.find(x => uk(x.scheduledAt) === 'Thu' && new Date(x.scheduledAt) > new Date());
+      const tue = tp.sessions.find(x => uk(x.scheduledAt) === 'Tue' && new Date(x.scheduledAt) > new Date(thu.scheduledAt));
+      const sameTueEvening = new Date(new Date(tue.scheduledAt).setUTCHours(18, 30, 0, 0)).toISOString();
+      const ok = await M.put(`/sessions/${thu.id}`, { scheduledAt: sameTueEvening });
+      check('moving a lesson onto a day with other lessons (hours apart) does not ask to merge', ok.status === 200 && !ok.data.merged, ok.data);
+    }
+    const edit = await M.put(`/users/${twin.data.id}`, { lessonDays: [{ dayOfWeek: 1, time: '16:00', subject: 'maths' }, { dayOfWeek: 1, time: '17:40', subject: 'english' }] });
+    const tp2 = (await M.get(`/lesson-plans/${twinPlan.data.id}`)).data;
+    const thursdays = tp2.sessions.filter(x => !x.attendedAt && new Date(x.scheduledAt).toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'Europe/London' }) === 'Thu');
+    check('removing a slot removes its empty future lessons', edit.status === 200 && thursdays.length === 0, thursdays.length);
+    const stats = (await M.get('/users/students')).data.find(x => x.id === twin.data.id);
+    check('students list includes slots, school year and IXL', stats?.slots?.length === 2 && stats.schoolYear === 'Year 6' && stats.ixlUsername === 'qatwin123', stats);
+
+    const lesson = tp2.sessions.find(x => new Date(x.scheduledAt) > new Date());
+    const doneItem = await M.post(`/lesson-plans/${twinPlan.data.id}/items`, { customTitle: 'Corbett Maths 5-a-day', customType: 'corbett_maths', sessionId: lesson.id, status: 'completed' });
+    await M.post(`/lesson-plans/${twinPlan.data.id}/items`, { customTitle: '11+ verbal reasoning', customType: 'eleven_plus', sessionId: lesson.id });
+    await M.post(`/lesson-plans/${twinPlan.data.id}/items`, { customTitle: 'Workbook p.3', customType: 'homework', sessionId: lesson.id });
+    const cleared = await M.post(`/lesson-plans/${twinPlan.data.id}/sessions/${lesson.id}/clear`, {});
+    check('clear lesson removes unstarted items, keeps completed', cleared.status === 200 && cleared.data.removed === 2 && cleared.data.kept === 1, cleared.data);
+    check('new custom task types are kept', (await M.get(`/lesson-plans/${twinPlan.data.id}`)).data.items.find(i => i.id === doneItem.data.id)?.customType === 'corbett_maths');
+    const printed = await M.get(`/lesson-plans/${twinPlan.data.id}/print?session=all`);
+    check('print data carries the IXL username', printed.data.student?.ixlUsername === 'qatwin123', printed.data.student);
   }
 
   section('Recording a past lesson');

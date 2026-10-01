@@ -1,23 +1,23 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import { ArrowRight, CalendarDays, CalendarPlus, CalendarX, Check, ClipboardCheck, FileText, MapPin, Play, Printer, StickyNote, Users } from 'lucide-react'
+import { ArrowRight, CalendarDays, CalendarPlus, CalendarX, Check, ClipboardCheck, FileText, MapPin, NotebookPen, Play, Printer, StickyNote, Users } from 'lucide-react'
 import api from '../../lib/api'
 import { printPlanUrl, openInNewTab, downloadOriginalsPack } from '../../lib/print'
-import { localDateKey } from '../../lib/dates'
+import { DAY_LONG, sessionNumbers, sortSlots, subjectLabel, toSlots, ukDayOfWeek } from '../../lib/dates'
+import { fmtDate, fmtTime, todayUk, ukTimeKey, ukToIso } from '../../lib/datetime'
 import { carryOverSession } from '../../lib/sessions'
 import CancelLessonModal from './CancelLessonModal'
 import GroupDetailPanel, { GroupRegisterDialog, formatGroupWhen } from './GroupDetailPanel'
 
-const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+// All times are UK time, whatever the device's time zone
+const formatTime = fmtTime
+const todayISO = todayUk
 
-function formatTime(date) {
-  return new Date(date).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
-}
-
-function todayISO() {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+// "YYYY-MM-DD" + n days (calendar maths in UTC, independent of the device zone)
+function addDaysKey(key, n) {
+  const [y, m, d] = key.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10)
 }
 
 // Today view shared by manager and tutor.
@@ -33,7 +33,7 @@ export default function TodayView({ refreshKey = 0 }) {
   const [plans, setPlans]       = useState([])
   const [loading, setLoading]   = useState(true)
   const [error, setError]       = useState('')
-  const [printDate, setPrintDate] = useState(() => localDateKey())
+  const [printDate, setPrintDate] = useState(() => todayUk())
   const [printing, setPrinting]   = useState(false)
   const [printInfo, setPrintInfo] = useState('')
   const [printWarn, setPrintWarn] = useState('')
@@ -112,9 +112,9 @@ export default function TodayView({ refreshKey = 0 }) {
   }
 
   const today = new Date()
-  const todayDayOfWeek = today.getDay() === 0 ? 6 : today.getDay() - 1 // 0=Mon..6=Sun
-  const dayLabel = DAY_NAMES[today.getDay()]
-  const dateLabel = today.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+  const todayDayOfWeek = ukDayOfWeek(today) // 0=Mon..6=Sun, UK
+  const dayLabel = DAY_LONG[todayDayOfWeek]
+  const dateLabel = fmtDate(today)
 
   function load({ quiet = false } = {}) {
     if (!quiet) setLoading(true)
@@ -145,25 +145,31 @@ export default function TodayView({ refreshKey = 0 }) {
     </div>
   )
 
-  // Students whose lessonDays include today AND who have an active plan tied to today
-  // AND don't already have a session record for today
-  const sessionPlanIds = new Set(sessions.map(s => s.lessonPlanId))
-  const expectedToday = students.filter(s => (s.lessonDays || []).includes(todayDayOfWeek))
-  const expectedNotScheduled = expectedToday
-    .map(s => {
-      const plan = plans.find(p => p.studentId === s.id && p.status === 'active' && p.lessonDayOfWeek === todayDayOfWeek)
-      return plan && !sessionPlanIds.has(plan.id) ? { student: s, plan } : null
+  // Regular weekly lessons due today (UK) that have no session record yet
+  const expectedNotScheduled = []
+  students.forEach(st => {
+    const slots = sortSlots(st.slots?.length ? st.slots : toSlots(st.lessonDays)).filter(sl => sl.dayOfWeek === todayDayOfWeek)
+    if (slots.length === 0) return
+    const theirs = sessions.filter(s => s.lessonPlan?.studentId === st.id)
+    const plan = plans.find(p => p.studentId === st.id && p.status === 'active' && (p.lessonDayOfWeek === todayDayOfWeek || p.lessonDayOfWeek == null))
+      || plans.find(p => p.studentId === st.id && p.status === 'active')
+    if (!plan) return
+    slots.forEach((slot, i) => {
+      const covered = theirs.some(s =>
+        (slot.id != null && s.slotId === slot.id) ||
+        (slot.time ? ukTimeKey(s.scheduledAt) === slot.time : true))
+      if (!covered) expectedNotScheduled.push({ key: `${st.id}-${slot.id ?? i}`, student: st, plan, slot })
     })
-    .filter(Boolean)
+  })
 
   // Lessons that belong to a group are shown on the group's card
   const individual = sessions.filter(s => !s.groupSessionId)
+  const numbers = sessionNumbers(individual)
 
-  async function quickCreateSession(plan) {
-    const now = new Date()
-    const scheduledAt = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 9, 0, 0).toISOString()
+  async function quickCreateSession(plan, slot) {
+    const scheduledAt = ukToIso(todayUk(), slot?.time || '09:00')
     try {
-      await api.post('/sessions', { lessonPlanId: plan.id, scheduledAt })
+      await api.post('/sessions', { lessonPlanId: plan.id, scheduledAt, durationMins: slot?.durationMins || undefined })
       load({ quiet: true })
     } catch (e) {
       setActionError(e.response?.data?.error || 'Failed to create session')
@@ -186,7 +192,7 @@ export default function TodayView({ refreshKey = 0 }) {
         <div>
           <p className="eyebrow">Today</p>
           <h2 className="page-title">{dayLabel}</h2>
-          <p className="text-sm text-gray-500">{dateLabel}</p>
+          <p className="text-sm text-gray-500">{dateLabel} · times are UK time</p>
         </div>
         {/* Mass print: every lesson's original worksheets for a day, in one PDF */}
         <div className="card p-3 flex flex-wrap items-center gap-2 max-w-md">
@@ -195,7 +201,7 @@ export default function TodayView({ refreshKey = 0 }) {
           </span>
           <input type="date" value={printDate} onChange={e => setPrintDate(e.target.value)} className="input w-auto text-sm py-1" aria-label="Day to print" />
           <button
-            onClick={() => { const d = new Date(); d.setDate(d.getDate() + 1); setPrintDate(localDateKey(d)) }}
+            onClick={() => setPrintDate(addDaysKey(todayUk(), 1))}
             className="btn-ghost btn-sm"
           >
             Tomorrow
@@ -216,7 +222,7 @@ export default function TodayView({ refreshKey = 0 }) {
                 : (() => {
                     const lessons = [
                       ...printGroups.map(g => ({ at: g.scheduledAt, label: `${formatTime(g.scheduledAt)} ${g.title} (group of ${g.members.length})` })),
-                      ...printSessions.filter(ps => !ps.groupSessionId).map(ps => ({ at: ps.scheduledAt, label: `${formatTime(ps.scheduledAt)} ${ps.lessonPlan?.student?.name || 'Lesson'}` })),
+                      ...printSessions.filter(ps => !ps.groupSessionId).map(ps => ({ at: ps.scheduledAt, label: `${formatTime(ps.scheduledAt)} ${ps.lessonPlan?.student?.name || 'Lesson'}${ps.subject ? ` (${subjectLabel(ps.subject)})` : ''}` })),
                     ].sort((a, b) => new Date(a.at) - new Date(b.at))
                     return <>{lessons.length} lesson{lessons.length === 1 ? '' : 's'}: {lessons.map(l => l.label).join(', ')}</>
                   })()}
@@ -313,7 +319,7 @@ export default function TodayView({ refreshKey = 0 }) {
                 }`}
               >
                 <div className="flex-shrink-0 sm:w-16 sm:text-center sm:border-r sm:border-gray-100 sm:pr-4">
-                  <p className="text-sm font-semibold text-gray-900 tabular-nums">{formatTime(session.scheduledAt).split(':')[0]}:{formatTime(session.scheduledAt).split(':')[1]}</p>
+                  <p className="text-sm font-semibold text-gray-900 tabular-nums">{formatTime(session.scheduledAt)}</p>
                   {session.durationMins && (
                     <p className="text-xs text-gray-500">{session.durationMins} min</p>
                   )}
@@ -322,11 +328,14 @@ export default function TodayView({ refreshKey = 0 }) {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
                     <p className="font-semibold text-gray-900">{studentName}</p>
-                    {session.lessonPlan?.student?.subjectFocus && (
+                    {session.subject ? (
+                      <span className="badge">{subjectLabel(session.subject)}</span>
+                    ) : session.lessonPlan?.student?.subjectFocus && (
                       <span className="badge capitalize">
                         {session.lessonPlan.student.subjectFocus}
                       </span>
                     )}
+                    {numbers.get(session.id) && <span className="badge">{numbers.get(session.id)}</span>}
                     {isAttended && <span className="badge-success"><Check className="icon-sm" aria-hidden />Attended</span>}
                     {isMissed && <span className="badge-warning">No record yet</span>}
                   </div>
@@ -353,6 +362,15 @@ export default function TodayView({ refreshKey = 0 }) {
                     >
                       <Play className="icon-sm" aria-hidden />
                       Start
+                    </button>
+                  )}
+                  {!isAttended && (
+                    <button
+                      onClick={() => navigate(`${basePath}/lesson-plans/${session.lessonPlan.id}/builder?session=${session.id}`)}
+                      className="btn-secondary btn-sm"
+                      title="Plan the work for this lesson"
+                    >
+                      <NotebookPen className="icon-sm" aria-hidden /> Plan
                     </button>
                   )}
                   <button
@@ -414,18 +432,21 @@ export default function TodayView({ refreshKey = 0 }) {
                 Scheduled by lesson day · no session created yet
               </p>
               <div className="space-y-2">
-                {expectedNotScheduled.map(({ student, plan }) => (
-                  <div key={plan.id} className="card-muted p-4 flex items-center gap-3">
+                {expectedNotScheduled.map(({ key, student, plan, slot }) => (
+                  <div key={key} className="card-muted p-4 flex items-center gap-3">
                     <div className="w-9 h-9 bg-redwood-50 text-redwood-700 rounded-full flex items-center justify-center font-semibold text-sm flex-shrink-0">
                       {student.name.charAt(0)}
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-gray-900 truncate">{student.name}</p>
-                      <p className="text-xs text-gray-500 truncate">{plan.title} · expected today</p>
+                      <p className="text-xs text-gray-500 truncate">
+                        {[slot.time ? `${slot.time} UK` : 'Expected today', subjectLabel(slot.subject), plan.title].filter(Boolean).join(' · ')}
+                      </p>
                     </div>
                     <button
-                      onClick={() => quickCreateSession(plan)}
+                      onClick={() => quickCreateSession(plan, slot)}
                       className="btn-secondary btn-sm"
+                      title={slot.time ? `Add a lesson today at ${slot.time}` : 'Add a lesson today at 09:00 (change it afterwards)'}
                     >
                       <CalendarPlus className="icon-sm" aria-hidden /> Schedule
                     </button>

@@ -109,7 +109,7 @@ router.get('/originals', requireRole('manager', 'tutor'), async (req, res, next)
       orderBy: { scheduledAt: 'asc' },
       select: {
         scheduledAt: true,
-        lessonPlan: { select: { title: true, student: { select: { name: true, subjectFocus: true } }, tutor: { select: { name: true } } } },
+        lessonPlan: { select: { title: true, student: { select: { name: true, subjectFocus: true, ixlUsername: true } }, tutor: { select: { name: true } } } },
         items: {
           orderBy: { sequenceOrder: 'asc' },
           select: {
@@ -187,10 +187,16 @@ router.put('/:id', requireRole('manager', 'tutor'), async (req, res, next) => {
     // ask first (409), or merge the two when the client confirms ({ merge: true })
     if (data.scheduledAt) {
       const { start, end } = zonedDayRange(zonedDateKey(data.scheduledAt));
-      const clash = await prisma.lessonSession.findFirst({
+      // Students can have two lessons a day (e.g. Maths then English), so only
+      // treat it as a clash if the other lesson that day is the same weekly
+      // slot, or within an hour of the new time.
+      const sameDay = await prisma.lessonSession.findMany({
         where: { lessonPlanId: existing.lessonPlanId, id: { not: sessionId }, scheduledAt: { gte: start, lte: end } },
-        select: { id: true, scheduledAt: true, attendedAt: true },
+        select: { id: true, scheduledAt: true, attendedAt: true, slotId: true },
       });
+      const clash = sameDay.find(o =>
+        (existing.slotId && o.slotId === existing.slotId) ||
+        Math.abs(o.scheduledAt.getTime() - data.scheduledAt.getTime()) < 60 * 60 * 1000);
       if (clash && !req.body.merge) {
         return res.status(409).json({
           error: 'There is already a lesson for this student on that day.',

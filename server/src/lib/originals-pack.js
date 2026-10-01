@@ -15,7 +15,7 @@ const prisma = require('../prisma');
 const storage = require('./storage');
 const { worksheetsRoot, resolveInside } = require('./originals');
 
-const CUSTOM_LABELS = { ixl_maths: 'IXL Maths', ixl_english: 'IXL English', paper: 'Paper activity', other: 'Task' };
+const CUSTOM_LABELS = { ixl_maths: 'IXL Maths', ixl_english: 'IXL English', corbett_maths: 'Corbett Maths', eleven_plus: '11+', paper: 'Paper activity', homework: 'Homework', other: 'Task' };
 const TZ = process.env.APP_TIMEZONE || 'Europe/London';
 
 const SUBJECTS = { maths: 'Maths', english: 'English', both: 'English & Maths' };
@@ -26,6 +26,7 @@ const SUBJECTS = { maths: 'Maths', english: 'English', both: 'English & Maths' }
 function packGroup({ student, tutorName, date, items, className }) {
   return {
     studentName: student.name,
+    ixlUsername: student.ixlUsername || null,
     subject: SUBJECTS[student.subjectFocus] || '',
     tutorName,
     date: date ? new Date(date) : new Date(),
@@ -37,7 +38,7 @@ function packGroup({ student, tutorName, date, items, className }) {
       const label = i.sheet
         ? (i.sheet.topic && !i.sheet.title.toLowerCase().includes(i.sheet.topic.toLowerCase()) ? `${i.sheet.topic}, ${i.sheet.title}` : i.sheet.title)
         : (i.customTitle || CUSTOM_LABELS[i.customType] || 'Task');
-      return { sheetId: i.sheet?.id || null, title: label, online: !i.sheet, score, done };
+      return { sheetId: i.sheet?.id || null, title: label, online: !i.sheet, score, done, homework: i.customType === 'homework' };
     }),
   };
 }
@@ -113,8 +114,9 @@ function drawLessonSheet(out, g, { font, bold }) {
 
   // Row 2: student name | date
   const r2 = 56;
-  const nameLines = wrap(g.studentName, bold, 15, XM - X0 - 12);
-  nameLines.slice(0, 2).forEach((l, i) => page.drawText(l, { x: X0 + 8, y: y - 24 - i * 17, size: 15, font: bold, color: RED }));
+  const nameLines = wrap(g.studentName, bold, 15, XM - X0 - 12).slice(0, g.ixlUsername ? 1 : 2);
+  nameLines.forEach((l, i) => page.drawText(l, { x: X0 + 8, y: y - 24 - i * 17, size: 15, font: bold, color: RED }));
+  if (g.ixlUsername) page.drawText(safe(`(${g.ixlUsername})`), { x: X0 + 8, y: y - 42, size: 11, font: bold, color: RED });
   center(longDate(g.date), bold, 13, XM, XS, y - (g.className ? 24 : 32), RED);
   if (g.className) center(g.className, font, 9, XM, XS, y - 40, MUTED);
   vline(XM, y, y - r2);
@@ -129,7 +131,8 @@ function drawLessonSheet(out, g, { font, bold }) {
   y -= r3; hline(y);
 
   // Task rows (at least 9, like the paper sheet)
-  const rows = [...g.items];
+  const homework = g.items.filter(i => i.homework);
+  const rows = g.items.filter(i => !i.homework);
   while (rows.length < 9) rows.push(null);
   const bottomLimit = 150;
   rows.forEach((it, idx) => {
@@ -146,9 +149,12 @@ function drawLessonSheet(out, g, { font, bold }) {
     y -= h; hline(y);
   });
 
-  // Homework row
-  const hw = 58;
+  // Homework row (homework tasks are listed here, like the paper sheet)
+  const hwText = homework.map(h => h.title).join('; ');
+  const hwLines = hwText ? wrap(hwText, font, 11, XS - XN - 80) : [];
+  const hw = Math.max(58, 26 + hwLines.length * 14);
   page.drawText('Homework:', { x: XN + 6, y: y - 18, size: 11, font: bold, color: INK });
+  hwLines.forEach((l, i) => page.drawText(l, { x: XN + 72, y: y - 18 - i * 14, size: 11, font, color: INK }));
   vline(XN, y, y - hw);
   y -= hw; hline(y);
 

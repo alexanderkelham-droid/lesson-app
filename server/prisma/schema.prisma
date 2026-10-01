@@ -48,6 +48,8 @@ model User {
   role         Role
   age          Int?
   subjectFocus SubjectFocus? @map("subject_focus")
+  schoolYear   String?       @map("school_year")   // e.g. "Year 5", "Reception"
+  ixlUsername  String?       @map("ixl_username")  // shown on the lesson sheet
   createdAt    DateTime      @default(now()) @map("created_at")
 
   studentPlans     LessonPlan[]        @relation("StudentPlans")
@@ -59,14 +61,20 @@ model User {
   @@map("users")
 }
 
+// A student's regular weekly lesson slot. A student can have several —
+// e.g. Maths Tue 16:00 and English Tue 17:40 (two sessions in one day).
 model StudentLessonDay {
-  id        Int @id @default(autoincrement())
-  studentId Int @map("student_id")
-  dayOfWeek Int @map("day_of_week") // 0=Monday, 1=Tuesday, ..., 6=Sunday
+  id           Int     @id @default(autoincrement())
+  studentId    Int     @map("student_id")
+  dayOfWeek    Int     @map("day_of_week") // 0=Monday, 1=Tuesday, ..., 6=Sunday
+  time         String? // "HH:MM" UK time
+  subject      String? // maths | english | 11plus | other
+  durationMins Int?    @map("duration_mins")
 
-  student User @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  student  User            @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  sessions LessonSession[]
 
-  @@unique([studentId, dayOfWeek])
+  @@unique([studentId, dayOfWeek, time])
   @@map("student_lesson_days")
 }
 
@@ -138,12 +146,17 @@ model LessonSession {
 
   // Set when this student's lesson is part of a group session (a class)
   groupSessionId Int?     @map("group_session_id")
+  // The weekly slot this lesson was generated from (kept if it's moved) and its subject
+  slotId         Int?     @map("slot_id")
+  subject        String?
 
   lessonPlan   LessonPlan       @relation(fields: [lessonPlanId], references: [id], onDelete: Cascade)
   groupSession GroupSession?    @relation(fields: [groupSessionId], references: [id], onDelete: SetNull)
+  slot         StudentLessonDay? @relation(fields: [slotId], references: [id], onDelete: SetNull)
   items        LessonPlanItem[]
 
   @@index([groupSessionId])
+  @@index([slotId])
   @@unique([lessonPlanId, scheduledAt])
   @@index([scheduledAt])
   @@map("lesson_sessions")

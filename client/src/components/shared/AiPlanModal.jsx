@@ -5,20 +5,25 @@ import SheetPreviewModal from './SheetPreviewModal'
 import SheetHistoryBadge from './SheetHistoryBadge'
 import useSheetHistory from '../../hooks/useSheetHistory'
 
-const CUSTOM_LABELS = { ixl_maths: 'IXL Maths', ixl_english: 'IXL English', paper: 'Paper activity', other: 'Custom task' }
+import { CUSTOM_LABELS } from '../../lib/customTypes'
+import { fmtDayTime } from '../../lib/datetime'
+import { subjectLabel } from '../../lib/sessions'
 
-const fmtSession = s => new Date(s.scheduledAt).toLocaleString('en-GB', {
-  weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
-})
+// "Tue 7 Oct, 17:40 · Maths" (UK time)
+const fmtSession = s => [fmtDayTime(s.scheduledAt), subjectLabel(s.subject)].filter(Boolean).join(' · ')
 
 /**
  * "Plan with AI" — asks the API for suggested next lessons based on the
  * student's history, lets the tutor tick what they want and choose which
  * session each lesson goes into, then hands the chosen items to onApply.
  *
+ * defaultSessionId preselects the lesson the first suggested lesson goes
+ * into (later lessons follow on from it); defaultSessionLabel names it when
+ * it isn't one of the upcoming lessons (e.g. a lesson already in the past).
+ *
  * onApply(assignments) where assignments = [{ sessionId|null, items: [{ sheetId?, sheet?, customTitle?, customType?, tutorNotes }] }]
  */
-export default function AiPlanModal({ planId, onClose, onApply, applyLabel = 'Add to lessons' }) {
+export default function AiPlanModal({ planId, onClose, onApply, applyLabel = 'Add to lessons', defaultSessionId = null, defaultSessionLabel = '' }) {
   const [lessons, setLessons] = useState(1)
   const [instructions, setInstructions] = useState('')
   const [loading, setLoading] = useState(false)
@@ -58,7 +63,14 @@ export default function AiPlanModal({ planId, onClose, onApply, applyLabel = 'Ad
       r.lessons.forEach((l, li) => l.items.forEach((_, ii) => { p[`${li}-${ii}`] = true }))
       setPicked(p)
       const t = {}
-      r.lessons.forEach((_, li) => { t[li] = r.upcomingSessions[li]?.id ?? '' })
+      const up = r.upcomingSessions
+      const startIdx = defaultSessionId ? up.findIndex(s => s.id === defaultSessionId) : -1
+      r.lessons.forEach((_, li) => {
+        if (!defaultSessionId) t[li] = up[li]?.id ?? ''
+        else if (startIdx >= 0) t[li] = up[startIdx + li]?.id ?? ''
+        // Chosen lesson isn't upcoming: first lesson goes there, the rest into the next lessons
+        else t[li] = li === 0 ? defaultSessionId : (up[li - 1]?.id ?? '')
+      })
       setTargets(t)
     } catch (e) {
       const msg = e.response?.data?.error
@@ -119,14 +131,15 @@ export default function AiPlanModal({ planId, onClose, onApply, applyLabel = 'Ad
           {/* Options */}
           <div className="grid sm:grid-cols-[auto,1fr] gap-3 items-start">
             <div>
-              <label className="label">Lessons to plan</label>
-              <select value={lessons} onChange={e => setLessons(Number(e.target.value))} className="input w-auto" disabled={loading}>
+              <label className="label" htmlFor={`${titleId}-lessons`}>Lessons to plan</label>
+              <select id={`${titleId}-lessons`} value={lessons} onChange={e => setLessons(Number(e.target.value))} className="input w-auto" disabled={loading}>
                 {[1, 2, 3, 4].map(n => <option key={n} value={n}>{n === 1 ? 'Next lesson' : `Next ${n} lessons`}</option>)}
               </select>
             </div>
             <div>
-              <label className="label">Anything to focus on? (optional)</label>
+              <label className="label" htmlFor={`${titleId}-focus`}>Anything to focus on? (optional)</label>
               <textarea
+                id={`${titleId}-focus`}
                 value={instructions}
                 onChange={e => setInstructions(e.target.value)}
                 disabled={loading}
@@ -179,6 +192,9 @@ export default function AiPlanModal({ planId, onClose, onApply, applyLabel = 'Ad
                       className="input w-auto text-xs py-1"
                       aria-label={`Session for lesson ${li + 1}`}
                     >
+                      {defaultSessionId && !result.upcomingSessions.some(s => s.id === defaultSessionId) && (
+                        <option value={defaultSessionId}>{defaultSessionLabel || 'This lesson'}</option>
+                      )}
                       {result.upcomingSessions.map(s => <option key={s.id} value={s.id}>{fmtSession(s)}</option>)}
                       <option value="">Unscheduled</option>
                     </select>
@@ -203,7 +219,7 @@ export default function AiPlanModal({ planId, onClose, onApply, applyLabel = 'Ad
                                 </button>
                               ) : (
                                 <span className="text-sm font-medium text-gray-900">
-                                  <span className="badge mr-1">{CUSTOM_LABELS[it.customType] || 'Task'}</span>
+                                  <span className="badge mr-1">{CUSTOM_LABELS[it.customType] || 'Custom task'}</span>
                                   {it.customTitle}
                                 </span>
                               )}

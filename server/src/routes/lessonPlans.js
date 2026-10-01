@@ -15,6 +15,7 @@ const {
 const router = express.Router();
 router.param('id', validateIdParam);
 router.param('itemId', validateIdParam);
+router.param('sessionId', validateIdParam);
 
 // Sheet fields safe to embed in plan responses. Deliberately excludes
 // contentJson (which contains the answer key) — clients load a sheet's
@@ -38,7 +39,7 @@ const PLAN_DETAIL_INCLUDE = {
   },
   sessions: {
     orderBy: { scheduledAt: 'asc' },
-    select: { id: true, scheduledAt: true, attendedAt: true, durationMins: true, notes: true }
+    select: { id: true, scheduledAt: true, attendedAt: true, durationMins: true, notes: true, subject: true, slotId: true, groupSessionId: true }
   }
 };
 
@@ -177,7 +178,7 @@ async function loadPackData(req, planIdRaw, sessionRaw) {
     where: { id: planId },
     select: {
       id: true, title: true, status: true, lessonDayOfWeek: true, lessonTime: true, studentNotes: true,
-      student: { select: { id: true, name: true, age: true, subjectFocus: true } },
+      student: { select: { id: true, name: true, age: true, subjectFocus: true, schoolYear: true, ixlUsername: true } },
       tutor:   { select: { id: true, name: true } },
     },
   });
@@ -460,6 +461,22 @@ router.delete('/:id/items/:itemId', requireRole('manager', 'tutor'), async (req,
   } catch (err) { next(err); }
 });
 
+// POST /api/lesson-plans/:id/sessions/:sessionId/clear
+// Empty one lesson in the planner: removes items not yet started. Items that
+// are completed or have student work are kept (history is never deleted).
+router.post('/:id/sessions/:sessionId/clear', requireRole('manager', 'tutor'), async (req, res, next) => {
+  try {
+    const { id: planId } = await assertCanMutatePlan(req, req.params.id);
+    const sessionId = parseId(req.params.sessionId);
+    const session = sessionId && await prisma.lessonSession.findFirst({ where: { id: sessionId, lessonPlanId: planId }, select: { id: true } });
+    if (!session) return res.status(404).json({ error: 'Lesson not found in this plan' });
+    const where = { sessionId, status: { not: 'completed' }, studentResponses: { none: {} } };
+    const { count } = await prisma.lessonPlanItem.deleteMany({ where });
+    const kept = await prisma.lessonPlanItem.count({ where: { sessionId } });
+    res.json({ removed: count, kept });
+  } catch (err) { next(err); }
+});
+
 // PATCH /api/lesson-plans/:id/items/reorder
 router.patch('/:id/items/reorder', requireRole('manager', 'tutor'), async (req, res, next) => {
   try {
@@ -600,7 +617,7 @@ router.post('/:id/past-lesson', requireRole('manager', 'tutor'), async (req, res
       return {
         sheetId: sheetId || null,
         customTitle: sheetId ? null : customTitle,
-        customType: sheetId ? null : (['ixl_maths', 'ixl_english', 'paper', 'other'].includes(i.customType) ? i.customType : 'other'),
+        customType: sheetId ? null : (['ixl_maths', 'ixl_english', 'corbett_maths', 'eleven_plus', 'paper', 'homework', 'other'].includes(i.customType) ? i.customType : 'other'),
         done: i.done !== false,
         score,
         tutorNotes: i.tutorNotes ? String(i.tutorNotes).slice(0, 1000) : null,
