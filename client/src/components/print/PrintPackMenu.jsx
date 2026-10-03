@@ -108,9 +108,7 @@ export default function PrintPackMenu({ planId }) {
     if (summary?.error) {
       setPackError(summary.error)
     } else if (summary?.empty) {
-      setPackError(choice === 'all' || choice === 'unscheduled'
-        ? 'None of these items has an original PDF'
-        : 'This lesson has no sheets with an original PDF')
+      setPackInfo('Lesson sheet opened (no original scans in this lesson)')
     } else if (summary) {
       const missing = summary.missing?.length ?? summary.missing ?? 0
       setPackInfo(`${summary.included} original${summary.included === 1 ? '' : 's'} · ${summary.pages} pages${missing ? ` · ${missing} without an original (see cover page)` : ''}`)

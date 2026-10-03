@@ -73,7 +73,7 @@ export default function TodayView({ refreshKey = 0 }) {
     const summary = await downloadOriginalsPack(`/sessions/originals?date=${printDate}`, { quiet: true })
     setPrinting(false)
     if (summary?.error) setPrintWarn(summary.error)
-    else if (summary?.empty) setPrintWarn('None of these lessons has sheets with an original PDF.')
+    else if (summary?.empty) setPrintWarn('Lesson sheets opened. None of these lessons has original scans.')
     else if (summary) {
       const missing = Array.isArray(summary.missing) ? summary.missing.length : summary.missing || 0
       setPrintInfo(`${summary.included} sheets · ${summary.pages} pages${missing ? ` · ${missing} without an original (listed on the cover pages)` : ''}`)
@@ -84,14 +84,14 @@ export default function TodayView({ refreshKey = 0 }) {
     setRowMsg(m => ({ ...m, [session.id]: '' }))
     const summary = await downloadOriginalsPack(`/lesson-plans/${session.lessonPlan.id}/originals?session=${session.id}`, { quiet: true })
     if (summary?.error) setRowMsg(m => ({ ...m, [session.id]: summary.error }))
-    else if (summary?.empty) setRowMsg(m => ({ ...m, [session.id]: 'This lesson has no sheets with an original PDF.' }))
+    else if (summary?.empty) setRowMsg(m => ({ ...m, [session.id]: 'Lesson sheet opened (no original scans).' }))
   }
 
   async function printGroupOriginals(group) {
     setGroupMsg(m => ({ ...m, [group.id]: '' }))
     const summary = await downloadOriginalsPack(`/groups/${group.id}/originals`, { quiet: true })
     if (summary?.error) setGroupMsg(m => ({ ...m, [group.id]: summary.error }))
-    else if (summary?.empty) setGroupMsg(m => ({ ...m, [group.id]: 'None of these students has sheets with an original PDF in this lesson.' }))
+    else if (summary?.empty) setGroupMsg(m => ({ ...m, [group.id]: 'Lesson sheets opened (no original scans).' }))
   }
 
   async function carryOver(session) {

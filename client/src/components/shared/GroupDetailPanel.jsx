@@ -271,7 +271,7 @@ export default function GroupDetailPanel({ groupId, onClose, onChanged }) {
     const summary = await downloadOriginalsPack(`/groups/${groupId}/originals`, { quiet: true })
     setPrinting(false)
     if (summary?.error) setError(summary.error)
-    else if (summary?.empty) setError('None of these students has sheets with an original PDF in this lesson.')
+    else if (summary?.empty) setError('')
     else if (summary) {
       const missing = Array.isArray(summary.missing) ? summary.missing.length : summary.missing || 0
       setNotice(`Print pack ready: ${summary.included} sheet${summary.included === 1 ? '' : 's'}, ${summary.pages} page${summary.pages === 1 ? '' : 's'}${missing ? `, ${missing} without an original (listed on the cover pages)` : ''}.`)

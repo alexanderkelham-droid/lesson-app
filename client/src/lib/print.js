@@ -57,8 +57,8 @@ export async function openOriginalPdf(sheet) {
 // of physical copies). `apiPath` is e.g. /lesson-plans/17/originals?session=5
 // or /sessions/originals?date=2026-10-02. The API returns a short-lived link
 // (hosted) or the PDF itself (local dev). Returns the pack summary.
-// If no sheet had an original (summary.included === 0) the tab is closed
-// again and the summary comes back with `empty: true` so the caller can say so.
+// The pack always opens — even with no original scans it still has the
+// lesson sheet cover. `empty: true` tells the caller there were no scans.
 // With { quiet: true } errors come back as { error } instead of an alert.
 export async function downloadOriginalsPack(apiPath, { quiet = false } = {}) {
   const win = window.open('', '_blank')
@@ -76,14 +76,9 @@ export async function downloadOriginalsPack(apiPath, { quiet = false } = {}) {
       setTimeout(() => URL.revokeObjectURL(url), 5 * 60_000)
       try { summary = JSON.parse(res.headers['x-pack-summary'] || 'null') } catch { /* optional */ }
     }
-    if (summary && summary.included === 0) {
-      if (win) win.close()
-      if (url?.startsWith('blob:')) URL.revokeObjectURL(url)
-      return { ...summary, empty: true }
-    }
     if (win) win.location.href = url
     else window.location.href = url
-    return summary
+    return summary && summary.included === 0 ? { ...summary, empty: true } : summary
   } catch (err) {
     if (win) win.close()
     let message = 'Could not build the print pack'
