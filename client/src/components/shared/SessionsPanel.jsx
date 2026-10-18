@@ -10,6 +10,7 @@ import api from '../../lib/api'
 import { printPlanUrl } from '../../lib/print'
 import { rescheduleSession, carryOverSession, sameDayOrdinals, sessionNumberLabel, subjectLabel } from '../../lib/sessions'
 import { fmtDay, fmtDayTime, fmtTime, todayUk, ukDateTimeInput, ukInputToIso, ukParts } from '../../lib/datetime'
+import { itemResult } from '../../lib/customTypes'
 
 // All times are UK time, whatever the device's time zone
 const formatDateTime = d => `${fmtDay(d)} ${ukParts(d).year}, ${fmtTime(d)}` // Tue 7 Oct 2026, 17:40
@@ -403,7 +404,7 @@ function SessionRow({ session, canEdit, ordinals = {}, onPlan, upcoming, groupTi
               <ul className="mt-2 space-y-1.5 ml-3">
                 {items.map(it => {
                   const isDone = it.status === 'completed'
-                  const resp = it.studentResponses?.[0]
+                  const resp = itemResult(it)
                   const title = it.customTitle || it.sheet?.title || 'Untitled'
                   const canMove = canEdit && !attended && !isDone
                   return (

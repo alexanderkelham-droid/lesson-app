@@ -13,8 +13,9 @@ import AiPlanModal from '../shared/AiPlanModal'
 import PastLessonModal from '../shared/PastLessonModal'
 import { ArrowLeft, ArrowRight, BookOpen, CalendarDays, Check, ClipboardList, Copy, FileText, GraduationCap, History, KeyRound, Pencil, Play, Plus, Sparkles, StickyNote, Trash2, UserX, Zap } from 'lucide-react'
 import api from '../../lib/api'
-import { fmtDate, fmtDayTime } from '../../lib/datetime'
+import { fmtDate, fmtDayTime, ukDateKey } from '../../lib/datetime'
 import { fmtSlot, sortSlots, subjectLabel, sessionNumbers } from '../../lib/dates'
+import { itemResult } from '../../lib/customTypes'
 
 const CUSTOM_LABELS = {
   ixl_maths: 'IXL Maths', ixl_english: 'IXL English', corbett_maths: 'Corbett Maths',
@@ -222,10 +223,11 @@ export default function StudentDetail() {
         })
       }
 
-      // Update the item: tutor notes + status. For custom items, this is the
-      // only record of completion (no associated Sheet to grade).
+      // Update the item: tutor notes + status. For custom items this is the
+      // only record of completion, and the score is kept on the item.
       await api.put(`/lesson-plans/${activePlan.id}/items/${markCompleteItem.id}`, {
         status: 'completed',
+        ...(isCustom && scoreNum !== null && { score: scoreNum }),
         ...(markNotes && { tutorNotes: markNotes })
       })
 
@@ -307,7 +309,7 @@ export default function StudentDetail() {
     .filter(i => i.status === 'completed' || !(i._count?.carriedTo > 0))
     .sort((a, b) => a.sequenceOrder - b.sequenceOrder)
   const completedItems = items.filter(i => i.status === 'completed')
-  const scores = completedItems.map(i => i.studentResponses?.[0]?.score).filter(v => v != null)
+  const scores = completedItems.map(i => itemResult(i)?.score).filter(v => v != null)
   const avgScore    = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null
   const totalTime   = completedItems.reduce((sum, i) => sum + (i.studentResponses?.[0]?.timeSpentSeconds ?? 0), 0)
   const formatMins  = secs => secs > 0 && secs < 60 ? '<1m' : `${Math.round(secs / 60)}m`
@@ -320,6 +322,31 @@ export default function StudentDetail() {
     .filter(s => !s.attendedAt && new Date(s.scheduledAt).getTime() + (s.durationMins || 60) * 60000 > nowMs)
     .sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt))[0] || null
   const nextLabel = nextSession ? sessionNumbers(planSessions, () => student.id).get(nextSession.id) : null
+
+  // "Current plan" shows what matters now, lesson by lesson: the last lesson
+  // taught, the lessons coming up and anything not yet given a lesson.
+  // Older lessons live in the History tab.
+  const sessionById = new Map(planSessions.map(s => [s.id, s]))
+  const isOverSession = s => !!s.attendedAt || new Date(s.scheduledAt).getTime() + (s.durationMins || 60) * 60000 <= nowMs
+  const pastWithItems = planSessions
+    .filter(s => isOverSession(s) && items.some(i => i.sessionId === s.id))
+    .sort((a, b) => new Date(b.scheduledAt) - new Date(a.scheduledAt))
+  // The last lesson day (both sessions if they had two that day)
+  const lastDay = pastWithItems[0] ? ukDateKey(pastWithItems[0].scheduledAt) : null
+  const lastSessions = pastWithItems.filter(s => ukDateKey(s.scheduledAt) === lastDay).reverse()
+  const upcomingSessions = planSessions
+    .filter(s => !isOverSession(s) && items.some(i => i.sessionId === s.id))
+    .sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt))
+  const numbers = sessionNumbers(planSessions, () => student.id)
+  const lessonName = s => [fmtDayTime(s.scheduledAt), subjectLabel(s.subject), numbers.get(s.id)].filter(Boolean).join(' · ')
+  const groups = [
+    ...lastSessions.map(s => ({ key: `s${s.id}`, eyebrow: 'Last lesson', label: lessonName(s), session: s, items: items.filter(i => i.sessionId === s.id) })),
+    ...upcomingSessions.map((s, i) => ({ key: `s${s.id}`, eyebrow: i === 0 ? 'Next lesson' : 'Coming up', label: lessonName(s), session: s, items: items.filter(it => it.sessionId === s.id) })),
+  ]
+  const unscheduledOpen = items.filter(i => (!i.sessionId || !sessionById.has(i.sessionId)) && i.status !== 'completed')
+  if (unscheduledOpen.length) groups.push({ key: 'unscheduled', eyebrow: 'Not in a lesson yet', label: 'Unscheduled', session: null, items: unscheduledOpen })
+  const shownIds = new Set(groups.flatMap(g => g.items.map(i => i.id)))
+  const earlierCount = items.filter(i => !shownIds.has(i.id)).length
 
   const TH = 'text-left px-3 py-2.5 eyebrow whitespace-nowrap'
 
@@ -531,9 +558,30 @@ export default function StudentDetail() {
                     <th className="px-3 py-2.5"><span className="sr-only">Actions</span></th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {items.map((item, idx) => {
-                    const resp = item.studentResponses?.[0]
+                {groups.map(g => (
+                <tbody key={g.key} className="divide-y divide-gray-100 border-b border-gray-200 last:border-b-0">
+                  <tr className="bg-cream">
+                    <td colSpan={8} className="px-3 py-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-sm text-gray-900">
+                          <span className="eyebrow mr-2">{g.eyebrow}</span>
+                          <span className="font-medium">{g.label}</span>
+                          {g.session?.attendedAt && <span className="badge-success ml-2">Attended</span>}
+                        </p>
+                        {g.session && (
+                          <button
+                            type="button"
+                            onClick={() => navigate(`${basePath}/lesson-plans/${activePlan.id}/builder?session=${g.session.id}`)}
+                            className="btn-ghost btn-sm"
+                          >
+                            <Pencil className="icon-sm" aria-hidden /> {g.eyebrow === 'Last lesson' ? 'Open' : 'Plan'}
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                  {g.items.map((item, idx) => {
+                    const resp = itemResult(item)
                     const cfg  = statusConfig[item.status]
                     return (
                       <tr key={item.id} className="hover:bg-gray-50 align-top">
@@ -594,8 +642,24 @@ export default function StudentDetail() {
                     )
                   })}
                 </tbody>
+                ))}
               </table>
               </div>
+              {items.length > 0 && groups.length === 0 && (
+                <div className="text-center py-8 px-4">
+                  <p className="font-medium text-gray-900">Nothing planned for the coming lessons</p>
+                  <p className="text-sm text-gray-500 mt-1 mb-4">Open the planner to plan the next lesson.</p>
+                  <button onClick={() => navigate(`${basePath}/lesson-plans/${activePlan.id}/builder${nextSession ? `?session=${nextSession.id}` : ''}`)} className="btn-secondary btn-sm">
+                    <Pencil className="icon-sm" aria-hidden /> Plan next lesson
+                  </button>
+                </div>
+              )}
+              {earlierCount > 0 && (
+                <p className="text-xs text-gray-500 px-3 py-2.5 border-t border-gray-100 bg-gray-50">
+                  {earlierCount} item{earlierCount === 1 ? '' : 's'} from earlier lessons{' '}
+                  <button type="button" onClick={() => setTab('history')} className="link">in History</button>
+                </p>
+              )}
               {items.length === 0 && (
                 <div className="text-center py-10 px-4">
                   <div className="w-12 h-12 rounded-full bg-gray-100 text-gray-400 flex items-center justify-center mx-auto mb-3">

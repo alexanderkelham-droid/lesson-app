@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ArrowDownToLine, ChevronRight, ClipboardList, FileText, RotateCcw } from 'lucide-react'
 import { sessionLabel } from '../../lib/sessions'
-import { customTypeLabel } from '../../lib/customTypes'
+import { customTypeLabel, itemResult } from '../../lib/customTypes'
 import { isOver } from './LessonPicker'
 import { itemTitle, scoreClass } from './LessonItem'
 
@@ -10,9 +10,12 @@ const COMPLETED_SHOWN = 10
 // Work from earlier lessons that can come into the selected lesson:
 //  - unfinished items (not completed, not already carried forward): move here
 //  - recently completed items: repeat (a new copy in this lesson)
-export default function BringForwardPanel({ items, sessions, ordinals, selectedKey, onMoveHere, onRepeat, onPreview, busy }) {
+// Unfinished items can be ticked and moved here together (onMoveManyHere).
+export default function BringForwardPanel({ items, sessions, ordinals, selectedKey, onMoveHere, onMoveManyHere, onRepeat, onPreview, busy }) {
   const [open, setOpen] = useState(true)
   const [showDone, setShowDone] = useState(false)
+  const [picked, setPicked] = useState(() => new Set())
+  useEffect(() => { setPicked(new Set()) }, [selectedKey])
 
   const { unfinishedGroups, unfinishedCount, completed } = useMemo(() => {
     const now = Date.now()
@@ -59,6 +62,21 @@ export default function BringForwardPanel({ items, sessions, ordinals, selectedK
 
   const shownCompleted = showDone ? completed : completed.slice(0, COMPLETED_SHOWN)
 
+  // Only ids still unfinished count (items move away after a save)
+  const unfinishedIds = new Set(unfinishedGroups.flatMap(g => g.items.map(i => i.id)))
+  const pickedItems = unfinishedGroups.flatMap(g => g.items).filter(i => picked.has(i.id) && unfinishedIds.has(i.id))
+  const toggle = id => setPicked(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n })
+  const toggleGroup = g => setPicked(p => {
+    const n = new Set(p)
+    const all = g.items.every(i => n.has(i.id))
+    g.items.forEach(i => (all ? n.delete(i.id) : n.add(i.id)))
+    return n
+  })
+  async function moveSelected() {
+    const ok = await onMoveManyHere(pickedItems)
+    if (ok !== false) setPicked(new Set())
+  }
+
   const titleCell = it => (
     <span className="flex items-center gap-1.5 min-w-0 flex-1">
       {it.sheetId ? <FileText className="icon-sm text-gray-400" aria-hidden /> : <ClipboardList className="icon-sm text-gray-400" aria-hidden />}
@@ -85,17 +103,40 @@ export default function BringForwardPanel({ items, sessions, ordinals, selectedK
       {open && (
         <div className="mt-3 space-y-4">
           <section aria-label="Unfinished work from earlier lessons">
-            <p className="eyebrow mb-1.5">Unfinished</p>
+            <div className="flex items-center justify-between gap-2 mb-1.5">
+              <p className="eyebrow">Unfinished</p>
+              {pickedItems.length > 0 && (
+                <button type="button" onClick={moveSelected} disabled={busy} className="btn-primary btn-sm">
+                  <ArrowDownToLine className="icon-sm" aria-hidden /> Move {pickedItems.length} here
+                </button>
+              )}
+            </div>
             {unfinishedGroups.length === 0 ? (
               <p className="text-xs text-gray-500">Nothing unfinished from earlier lessons.</p>
             ) : (
               <div className="space-y-3">
                 {unfinishedGroups.map(g => (
                   <div key={g.key}>
-                    <p className="text-xs font-medium text-gray-600 mb-1">{g.label}</p>
+                    <label className="flex items-center gap-2 text-xs font-medium text-gray-600 mb-1 cursor-pointer w-fit">
+                      <input
+                        type="checkbox"
+                        className="accent-redwood-600"
+                        checked={g.items.every(i => picked.has(i.id))}
+                        onChange={() => toggleGroup(g)}
+                        aria-label={`Select everything unfinished from ${g.label}`}
+                      />
+                      {g.label}
+                    </label>
                     <ul className="space-y-1">
                       {g.items.map(it => (
-                        <li key={it.id} className="flex items-center gap-2 text-xs text-gray-700 bg-gray-50 rounded-lg px-2 py-1.5">
+                        <li key={it.id} className={`flex items-center gap-2 text-xs text-gray-700 rounded-lg px-2 py-1.5 ${picked.has(it.id) ? 'bg-redwood-50' : 'bg-gray-50'}`}>
+                          <input
+                            type="checkbox"
+                            className="accent-redwood-600 flex-shrink-0"
+                            checked={picked.has(it.id)}
+                            onChange={() => toggle(it.id)}
+                            aria-label={`Select ${itemTitle(it)}`}
+                          />
                           {titleCell(it)}
                           {it.status === 'in_progress' && <span className="badge-warning text-[10px] px-1.5 py-0">In progress</span>}
                           <button
@@ -125,7 +166,7 @@ export default function BringForwardPanel({ items, sessions, ordinals, selectedK
               <>
                 <ul className="space-y-1">
                   {shownCompleted.map(({ item: it, label }) => {
-                    const score = it.studentResponses?.[0]?.score
+                    const score = itemResult(it)?.score
                     return (
                       <li key={it.id} className="flex items-center gap-2 text-xs text-gray-700 rounded-lg px-2 py-1.5 hover:bg-gray-50">
                         {titleCell(it)}

@@ -9,6 +9,7 @@ import api from '../../lib/api'
 import { Check, ChevronRight, ClipboardList, Hourglass, BookOpen, Radio, MessageSquareText, History, House } from 'lucide-react'
 import { fmtDayLong, fmtTime, todayUk, ukDateKey } from '../../lib/datetime'
 import { sessionNumbers, subjectLabel } from '../../lib/dates'
+import { itemResult } from '../../lib/customTypes'
 
 const CUSTOM_TYPE_LABELS = {
   ixl_maths: 'IXL Maths', ixl_english: 'IXL English', corbett_maths: 'Corbett Maths',
@@ -165,7 +166,7 @@ export default function StudentDashboard() {
             <div data-tour="lesson-items" className="space-y-3">
               <h3 className="section-title mb-1">Your lesson plan</h3>
               {items.map((item, idx) => {
-                const resp  = item.studentResponses?.[0]
+                const resp  = itemResult(item)
                 const isCompleted = item.status === 'completed'
                 const isCustom = !item.sheet && item.customTitle
                 const isHomework = isCustom && item.customType === 'homework'

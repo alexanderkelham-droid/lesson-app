@@ -6,6 +6,7 @@ import StudentDashboard from './components/student/StudentDashboard'
 import SheetView from './components/student/SheetView'
 import ManagerDashboard from './components/manager/ManagerDashboard'
 import StudentDetail from './components/manager/StudentDetail'
+import TutorOverview from './components/manager/TutorOverview'
 import LessonPlanBuilder from './components/manager/LessonPlanBuilder'
 import SheetsList from './components/manager/SheetsList'
 import SheetEditor from './components/manager/SheetEditor'
@@ -49,6 +50,9 @@ export default function App() {
           } />
           <Route path="/manager/students/:studentId" element={
             <ProtectedRoute role="manager"><StudentDetail /></ProtectedRoute>
+          } />
+          <Route path="/manager/tutors/:tutorId" element={
+            <ProtectedRoute role="manager"><TutorOverview /></ProtectedRoute>
           } />
           <Route path="/manager/lesson-plans/:planId/builder" element={
             <ProtectedRoute role="manager"><LessonPlanBuilder /></ProtectedRoute>

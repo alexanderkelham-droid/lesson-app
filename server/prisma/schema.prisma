@@ -175,6 +175,8 @@ model LessonPlanItem {
   // For non-sheet items (IXL, paper activity, custom task): title + type
   customTitle   String?              @map("custom_title")
   customType    String?              @map("custom_type") // e.g. "ixl_maths", "ixl_english", "paper", "other"
+  // Score (0-100) for a custom task marked done. Sheets keep theirs on StudentResponse.
+  score         Float?
   // Which session this item belongs to. Null = unscheduled (in plan but not yet
   // assigned to a session). On auto-carryover, the old item stays linked to
   // the past session (preserving its history) and a fresh clone is created

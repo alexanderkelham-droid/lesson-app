@@ -9,7 +9,7 @@ import GroupSessionModal from '../shared/GroupSessionModal'
 import ConfirmModal, { CopyableText } from '../shared/ConfirmModal'
 import Tour from '../shared/Tour'
 import { managerTour } from '../shared/tourSteps'
-import { AlertTriangle, ArrowRight, ChevronRight, KeyRound, Library, Pencil, Plus, Search, Trash2, UserPlus, Users, Zap } from 'lucide-react'
+import { AlertTriangle, ArrowRight, ChevronRight, Eye, KeyRound, Library, Pencil, Plus, Search, Trash2, UserPlus, Users, Zap } from 'lucide-react'
 import api from '../../lib/api'
 import { fmtDate } from '../../lib/datetime'
 import { DAY_SHORT, fmtSlot, sortSlots } from '../../lib/dates'
@@ -386,7 +386,10 @@ export default function ManagerDashboard() {
                           <p className="eyebrow mt-0.5">Active plans</p>
                         </div>
                       </div>
-                      <div className="flex gap-1 mt-4 pt-3 border-t border-gray-100 -mx-1">
+                      <button onClick={() => navigate(`/manager/tutors/${t.id}`)} className="btn-secondary btn-sm mt-4 w-full justify-center">
+                        <Eye className="icon-sm" aria-hidden /> View lessons
+                      </button>
+                      <div className="flex gap-1 mt-3 pt-3 border-t border-gray-100 -mx-1">
                         <button onClick={() => setEditTutor(t)} className="btn-ghost btn-sm" aria-label={`Edit ${t.name}`}>
                           <Pencil className="icon-sm" aria-hidden /> Edit
                         </button>

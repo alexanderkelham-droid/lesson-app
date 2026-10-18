@@ -12,6 +12,7 @@ import { useConfirm } from './ConfirmModal'
 import SheetLink from './SheetLink'
 import GroupSessionModal, { StudentPicker, MAX_GROUP_SIZE } from './GroupSessionModal'
 import { fmtDayLong, fmtTime } from '../../lib/datetime'
+import { itemResult } from '../../lib/customTypes'
 
 const CUSTOM_LABELS = {
   ixl_maths: 'IXL Maths', ixl_english: 'IXL English', corbett_maths: 'Corbett Maths',
@@ -516,7 +517,7 @@ export default function GroupDetailPanel({ groupId, onClose, onChanged }) {
                             {m.items?.length ? (
                               <ul className="space-y-1.5">
                                 {m.items.map(it => {
-                                  const resp = it.studentResponses?.[0]
+                                  const resp = itemResult(it)
                                   const title = it.sheet?.title || it.customTitle || 'Untitled'
                                   return (
                                     <li key={it.id} className="text-sm flex flex-wrap items-center gap-x-2 gap-y-1">

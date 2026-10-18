@@ -8,6 +8,7 @@ import SheetPreviewModal from './SheetPreviewModal'
 import InteractiveSheet from './InteractiveSheet'
 import api from '../../lib/api'
 import { ArrowLeft, BookOpen, Check, ClipboardList, ExternalLink, Eye, Hourglass, LoaderCircle, LogOut, Menu, Plus, X } from 'lucide-react'
+import { itemResult } from '../../lib/customTypes'
 
 const CUSTOM_LABELS = {
   ixl_maths: 'IXL Maths', ixl_english: 'IXL English', corbett_maths: 'Corbett Maths',
@@ -371,7 +372,8 @@ function LiveRoom({
   activeItem, onSelectItem, onEndSession, onAddSheet, onItemFinalized, studentOnline,
 }) {
   const [markError, setMarkError] = useState('')
-  useEffect(() => { setMarkError('') }, [activeItem?.id])
+  const [customScore, setCustomScore] = useState('')
+  useEffect(() => { setMarkError(''); setCustomScore('') }, [activeItem?.id])
   const activeItemSheet = activeItem?.sheet
   const isCustomActive  = activeItem && !activeItem.sheet
   const hasInteractive  = !!activeItemSheet
@@ -494,7 +496,7 @@ function LiveRoom({
                         <p className="text-xs text-gray-500 mt-0.5 truncate">
                           {isCustom ? 'Custom task' : item.sheet?.subject}
                           {isDone && (() => {
-                            const sc = item.studentResponses?.[0]?.score
+                            const sc = itemResult(item)?.score
                             const r = sc != null ? Math.round(sc) : null
                             const tone = r == null || r >= 70 ? 'text-forest-700' : r >= 40 ? 'text-amber-700' : 'text-red-700'
                             return (
@@ -568,19 +570,34 @@ function LiveRoom({
                       <Check className="icon" aria-hidden /> Done
                     </p>
                   ) : (
-                    <button
-                      onClick={async () => {
-                        try {
-                          setMarkError('')
-                          // File it under today's lesson
-                          await api.put(`/lesson-plans/${planDetails.id}/items/${activeItem.id}`, { status: 'completed', sessionId })
-                          onItemFinalized?.()
-                        } catch (e) { setMarkError(e.response?.data?.error || 'Could not mark done') }
-                      }}
-                      className="btn-primary mt-4"
-                    >
-                      <Check className="icon" aria-hidden /> Mark done
-                    </button>
+                    <div className="mt-4 flex flex-wrap items-end justify-center gap-2">
+                      <div className="text-left">
+                        <label className="label" htmlFor="custom-task-score">Score % (optional)</label>
+                        <input
+                          id="custom-task-score"
+                          type="number" min="0" max="100" step="1"
+                          value={customScore}
+                          onChange={e => setCustomScore(e.target.value)}
+                          className="input w-28"
+                          placeholder="e.g. 80"
+                        />
+                      </div>
+                      <button
+                        onClick={async () => {
+                          const n = customScore === '' ? null : Number(customScore)
+                          if (n !== null && !(n >= 0 && n <= 100)) { setMarkError('Score must be between 0 and 100, or leave blank.'); return }
+                          try {
+                            setMarkError('')
+                            // File it under today's lesson
+                            await api.put(`/lesson-plans/${planDetails.id}/items/${activeItem.id}`, { status: 'completed', sessionId, ...(n !== null && { score: n }) })
+                            onItemFinalized?.()
+                          } catch (e) { setMarkError(e.response?.data?.error || 'Could not mark done') }
+                        }}
+                        className="btn-primary"
+                      >
+                        <Check className="icon" aria-hidden /> Mark done
+                      </button>
+                    </div>
                   )
                 )}
                 {markError && <p className="text-sm text-red-700 mt-2" role="alert">{markError}</p>}

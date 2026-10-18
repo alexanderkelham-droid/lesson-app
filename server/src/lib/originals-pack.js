@@ -18,23 +18,37 @@ const { worksheetsRoot, resolveInside } = require('./originals');
 const CUSTOM_LABELS = { ixl_maths: 'IXL Maths', ixl_english: 'IXL English', corbett_maths: 'Corbett Maths', eleven_plus: '11+', paper: 'Paper activity', homework: 'Homework', other: 'Task' };
 const TZ = process.env.APP_TIMEZONE || 'Europe/London';
 
-const SUBJECTS = { maths: 'Maths', english: 'English', both: 'English & Maths' };
+const SUBJECTS = { maths: 'Maths', english: 'English', both: 'English & Maths', '11plus': '11+' };
+
+// Cover subject: the lesson's own subject (a student with a maths and an
+// English lesson gets the right one on each), else what the sheets are,
+// else the student's overall focus.
+function coverSubject(subject, items, student) {
+  if (SUBJECTS[subject]) return SUBJECTS[subject];
+  const fromSheets = [...new Set(items.map(i => String(i.sheet?.subject || '').toLowerCase()).filter(s => SUBJECTS[s]))];
+  if (fromSheets.length === 1) return SUBJECTS[fromSheets[0]];
+  if (fromSheets.length > 1) return SUBJECTS.both;
+  return SUBJECTS[student.subjectFocus] || '';
+}
 
 // One student's cover-page data. `items` are plan items with optional
-// sheet {id, title, topic}, customTitle/customType, status and
-// studentResponses[0].score.
-function packGroup({ student, tutorName, date, items, className }) {
+// sheet {id, title, topic, subject}, customTitle/customType, status,
+// score (custom tasks) and studentResponses[0].score. `subject` is the
+// lesson's subject (LessonSession.subject) when known.
+function packGroup({ student, tutorName, date, items, className, subject }) {
   return {
     studentName: student.name,
     ixlUsername: student.ixlUsername || null,
-    subject: SUBJECTS[student.subjectFocus] || '',
+    subject: coverSubject(subject, items, student),
     tutorName,
     date: date ? new Date(date) : new Date(),
     className: className || null,
     items: items.map(i => {
       const resp = i.studentResponses?.[0];
       const done = i.status === 'completed';
-      const score = !done ? '' : resp ? (resp.score != null ? String(Math.round(resp.score)) : 'TBC') : 'done';
+      const score = !done ? ''
+        : resp ? (resp.score != null ? String(Math.round(resp.score)) : 'TBC')
+        : i.score != null ? String(Math.round(i.score)) : 'done';
       const label = i.sheet
         ? (i.sheet.topic && !i.sheet.title.toLowerCase().includes(i.sheet.topic.toLowerCase()) ? `${i.sheet.topic}, ${i.sheet.title}` : i.sheet.title)
         : (i.customTitle || CUSTOM_LABELS[i.customType] || 'Task');
@@ -45,7 +59,7 @@ function packGroup({ student, tutorName, date, items, className }) {
 
 // The /print payload (one plan) as a pack group
 function packGroupFromPrintData(data) {
-  return packGroup({ student: data.student, tutorName: data.tutor.name, date: data.session?.scheduledAt, items: data.items });
+  return packGroup({ student: data.student, tutorName: data.tutor.name, date: data.session?.scheduledAt, items: data.items, subject: data.session?.subject });
 }
 
 async function originalBytes(sheet) {

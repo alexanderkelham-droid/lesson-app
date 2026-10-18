@@ -108,12 +108,12 @@ router.get('/originals', requireRole('manager', 'tutor'), async (req, res, next)
       where,
       orderBy: { scheduledAt: 'asc' },
       select: {
-        scheduledAt: true,
+        scheduledAt: true, subject: true,
         lessonPlan: { select: { title: true, student: { select: { name: true, subjectFocus: true, ixlUsername: true } }, tutor: { select: { name: true } } } },
         items: {
           orderBy: { sequenceOrder: 'asc' },
           select: {
-            status: true, customTitle: true, customType: true,
+            status: true, customTitle: true, customType: true, score: true,
             sheet: { select: { id: true, title: true, subject: true, topic: true } },
             studentResponses: { orderBy: { createdAt: 'desc' }, take: 1, select: { score: true } },
           },
@@ -123,7 +123,7 @@ router.get('/originals', requireRole('manager', 'tutor'), async (req, res, next)
     if (!sessions.length) return res.status(404).json({ error: 'No lessons on that day' });
     const tz = process.env.APP_TIMEZONE || 'Europe/London';
     const groups = sessions.map(s => packGroup({
-      student: s.lessonPlan.student, tutorName: s.lessonPlan.tutor.name, date: s.scheduledAt, items: s.items,
+      student: s.lessonPlan.student, tutorName: s.lessonPlan.tutor.name, date: s.scheduledAt, items: s.items, subject: s.subject,
     }));
     await sendOriginalsPack(res, groups, `print-run-${date}`);
   } catch (err) { next(err); }

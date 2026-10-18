@@ -12,8 +12,9 @@ function formatSession(s, numbers) {
 
 // "Print lesson pack" button + small popover: pick a session (defaults to
 // the next upcoming unattended one), all items or unscheduled, then open the
-// printable pack in a new tab.
-export default function PrintPackMenu({ planId }) {
+// printable pack in a new tab. In the planner, defaultSessionId preselects the
+// lesson being planned (so a maths lesson doesn't print the English one).
+export default function PrintPackMenu({ planId, defaultSessionId = null }) {
   const [open, setOpen] = useState(false)
   const [sessions, setSessions] = useState(null)
   const [itemCounts, setItemCounts] = useState({})
@@ -25,7 +26,7 @@ export default function PrintPackMenu({ planId }) {
   const btnRef = useRef(null)
   const [pos, setPos] = useState(null)
 
-  useEffect(() => { setSessions(null); setOpen(false) }, [planId])
+  useEffect(() => { setSessions(null); setOpen(false) }, [planId, defaultSessionId])
 
   useEffect(() => {
     if (!open || sessions) return
@@ -41,11 +42,14 @@ export default function PrintPackMenu({ planId }) {
         const counts = {}
         for (const it of res.data.items || []) if (it.sessionId) counts[it.sessionId] = (counts[it.sessionId] || 0) + 1
         setItemCounts(counts)
+        // The lesson open in the planner is offered even if it's in the past
+        const current = defaultSessionId && all.find(s => s.id === defaultSessionId)
+        if (current && !upcoming.some(s => s.id === current.id)) upcoming.unshift(current)
         setSessions(upcoming)
-        setChoice(upcoming[0] ? String(upcoming[0].id) : 'all')
+        setChoice(current ? String(current.id) : upcoming[0] ? String(upcoming[0].id) : 'all')
       })
       .catch(() => setSessions([]))
-  }, [open, sessions, planId])
+  }, [open, sessions, planId, defaultSessionId])
 
   // Close when clicking outside or pressing Escape
   useEffect(() => {

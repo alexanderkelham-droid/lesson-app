@@ -23,7 +23,7 @@ const MEMBER_SELECT = {
   items: {
     orderBy: { sequenceOrder: 'asc' },
     select: {
-      id: true, status: true, customTitle: true, customType: true, carriedFromId: true, tutorNotes: true,
+      id: true, status: true, customTitle: true, customType: true, carriedFromId: true, tutorNotes: true, score: true,
       sheet: { select: { id: true, title: true, subject: true, topic: true, difficultyLevel: true } },
       studentResponses: { orderBy: { createdAt: 'desc' }, take: 1, select: { score: true, completedAt: true } },
     },

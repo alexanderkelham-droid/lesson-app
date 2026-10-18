@@ -139,6 +139,12 @@ function SessionPlanner({ planId, basePath, user }) {
   )
   const inLesson = useMemo(() => new Set(lessonItems.map(i => i.sheetId).filter(Boolean)), [lessonItems])
 
+  // Ticked items in this lesson, for moving several at once
+  const [picked, setPicked] = useState(() => new Set())
+  useEffect(() => { setPicked(new Set()) }, [selectedKey])
+  const pickedHere = lessonItems.filter(i => picked.has(i.id))
+  const togglePicked = item => setPicked(p => { const n = new Set(p); n.has(item.id) ? n.delete(item.id) : n.add(item.id); return n })
+
   const counts = useMemo(() => {
     const c = {}
     for (const it of items) {
@@ -281,6 +287,16 @@ function SessionPlanner({ planId, basePath, user }) {
     return run(
       () => api.put(`/lesson-plans/${planId}/items/${item.id}`, { sessionId, sequenceOrder: maxSeq + 1 }),
       { saved: 'Moved', notice: { text: `Moved "${itemTitle(item)}" to ${dest}.` } }
+    )
+  }
+
+  // Several items at once (ticked in the lesson or in Bring forward)
+  function moveMany(list, target) {
+    const sessionId = target === 'unscheduled' || target == null ? null : Number(target)
+    const dest = sessionId ? (sessionId === targetSessionId ? 'this lesson' : sessionLabel(sessions.find(s => s.id === sessionId), ordinals)) : 'Unscheduled'
+    return run(
+      () => api.post(`/lesson-plans/${planId}/items/move`, { itemIds: list.map(i => i.id), sessionId }),
+      { saved: 'Moved', notice: { text: `Moved ${plural(list.length, 'item')} to ${dest}.` } }
     )
   }
 
@@ -512,7 +528,7 @@ function SessionPlanner({ planId, basePath, user }) {
                   >
                     <Printer className="icon-sm" aria-hidden /> Print this lesson
                   </a>
-                  <PrintPackMenu planId={planId} />
+                  <PrintPackMenu planId={planId} defaultSessionId={selectedSession?.id} />
                 </div>
               </div>
 
@@ -554,6 +570,33 @@ function SessionPlanner({ planId, basePath, user }) {
               ) : (
                 <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                   <SortableContext items={lessonItems.map(i => i.id)} strategy={verticalListSortingStrategy}>
+                    <div className="flex flex-wrap items-center gap-2 mb-2 text-sm">
+                      <label className="flex items-center gap-2 text-gray-600 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          className="accent-redwood-600"
+                          checked={pickedHere.length > 0 && pickedHere.length === lessonItems.length}
+                          onChange={() => setPicked(pickedHere.length === lessonItems.length ? new Set() : new Set(lessonItems.map(i => i.id)))}
+                          aria-label="Select all items in this lesson"
+                        />
+                        {pickedHere.length ? `${pickedHere.length} selected` : 'Select'}
+                      </label>
+                      {pickedHere.length > 0 && (
+                        <select
+                          value=""
+                          disabled={busy}
+                          onChange={async e => {
+                            if (!e.target.value) return
+                            if (await moveMany(pickedHere, e.target.value)) setPicked(new Set())
+                          }}
+                          className="input w-auto text-sm py-1"
+                          aria-label="Move the selected items to another lesson"
+                        >
+                          <option value="">Move selected to…</option>
+                          {moveOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                        </select>
+                      )}
+                    </div>
                     <ol className="space-y-2" aria-label={`Items in ${lessonLabel}`}>
                       {lessonItems.map((item, idx) => (
                         <LessonItem
@@ -566,6 +609,8 @@ function SessionPlanner({ planId, basePath, user }) {
                           onMove={moveItem}
                           onRemove={removeItem}
                           disabled={busy}
+                          selected={picked.has(item.id)}
+                          onToggleSelect={togglePicked}
                         />
                       ))}
                     </ol>
@@ -583,6 +628,7 @@ function SessionPlanner({ planId, basePath, user }) {
               ordinals={ordinals}
               selectedKey={selectedKey}
               onMoveHere={moveHere}
+              onMoveManyHere={list => moveMany(list, targetSessionId)}
               onRepeat={repeatItem}
               onPreview={setPreviewSheetId}
               busy={busy}

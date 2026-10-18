@@ -329,11 +329,12 @@ async function main() {
     check('lessons generated for every slot with subjects', subjects.has('maths') && subjects.has('english') && tp.sessions.length >= 20, { n: tp.sessions.length, subjects: [...subjects] });
     check('two Tuesday lessons at 16:00 and 17:40 UK', tueTimes.has('16:00') && tueTimes.has('17:40'), [...tueTimes]);
     {
-      // Thursday English moved onto a Tuesday that has Maths 16:00 + English 17:40 (different slots), at 19:30
+      // Thursday English moved onto a Tuesday that has Maths 16:00 + English 17:40 (different slots), at
+      // 20:00 UTC (20:00 GMT / 21:00 BST — over an hour after 17:40 either side of the clock change)
       const uk = d => new Date(d).toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'Europe/London' });
       const thu = tp.sessions.find(x => uk(x.scheduledAt) === 'Thu' && new Date(x.scheduledAt) > new Date());
       const tue = tp.sessions.find(x => uk(x.scheduledAt) === 'Tue' && new Date(x.scheduledAt) > new Date(thu.scheduledAt));
-      const sameTueEvening = new Date(new Date(tue.scheduledAt).setUTCHours(18, 30, 0, 0)).toISOString();
+      const sameTueEvening = new Date(new Date(tue.scheduledAt).setUTCHours(20, 0, 0, 0)).toISOString();
       const ok = await M.put(`/sessions/${thu.id}`, { scheduledAt: sameTueEvening });
       check('moving a lesson onto a day with other lessons (hours apart) does not ask to merge', ok.status === 200 && !ok.data.merged, ok.data);
     }
@@ -353,6 +354,24 @@ async function main() {
     check('new custom task types are kept', (await M.get(`/lesson-plans/${twinPlan.data.id}`)).data.items.find(i => i.id === doneItem.data.id)?.customType === 'corbett_maths');
     const printed = await M.get(`/lesson-plans/${twinPlan.data.id}/print?session=all`);
     check('print data carries the IXL username', printed.data.student?.ixlUsername === 'qatwin123', printed.data.student);
+
+    // Custom task scores, moving several items at once, lesson subject on prints, tutor overview
+    const scored = await M.put(`/lesson-plans/${twinPlan.data.id}/items/${doneItem.data.id}`, { status: 'completed', score: 85 });
+    check('a custom task keeps its score', scored.status === 200 && scored.data.score === 85, scored.data);
+    check('custom task score must be 0-100', (await M.put(`/lesson-plans/${twinPlan.data.id}/items/${doneItem.data.id}`, { score: 140 })).status === 400);
+    const later = tp2.sessions.filter(x => new Date(x.scheduledAt) > new Date(lesson.scheduledAt))[0];
+    const a = await M.post(`/lesson-plans/${twinPlan.data.id}/items`, { customTitle: 'Move me 1', customType: 'paper', sessionId: lesson.id });
+    const b = await M.post(`/lesson-plans/${twinPlan.data.id}/items`, { customTitle: 'Move me 2', customType: 'paper', sessionId: lesson.id });
+    const moved = await M.post(`/lesson-plans/${twinPlan.data.id}/items/move`, { itemIds: [a.data.id, b.data.id], sessionId: later.id });
+    const afterMove = (await M.get(`/lesson-plans/${twinPlan.data.id}`)).data.items.filter(i => [a.data.id, b.data.id].includes(i.id));
+    check('several items move to another lesson at once', moved.status === 200 && moved.data.moved === 2 && afterMove.every(i => i.sessionId === later.id), moved.data);
+    check('moving items from another plan is refused', (await M.post(`/lesson-plans/${planA.data.id}/items/move`, { itemIds: [a.data.id], sessionId: null })).status === 404);
+    const lessonPrint = await M.get(`/lesson-plans/${twinPlan.data.id}/print?session=${later.id}`);
+    check('lesson print carries that lesson\'s subject', lessonPrint.data.session?.subject === later.subject && !!later.subject, lessonPrint.data.session);
+    const overview = await M.get(`/users/${tutor.data.id}/tutor-overview`);
+    const twinRow = overview.data.students?.find(r => r.student.id === twin.data.id);
+    check('manager sees a tutor\'s students and planned lessons', overview.status === 200 && twinRow && twinRow.upcoming.some(s => s.planned >= 2), twinRow);
+    check('tutors can\'t open the tutor overview', (await T.get(`/users/${tutor.data.id}/tutor-overview`)).status === 403);
   }
 
   section('Recording a past lesson');

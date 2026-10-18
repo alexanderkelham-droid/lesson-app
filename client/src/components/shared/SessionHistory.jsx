@@ -6,6 +6,7 @@ import LoadingSpinner from './LoadingSpinner'
 import { printPlanUrl } from '../../lib/print'
 import { fmtDateLong, fmtTime } from '../../lib/datetime'
 import { sameDayOrdinals, sessionNumberLabel, startOfUkDay, subjectLabel } from '../../lib/sessions'
+import { itemResult } from '../../lib/customTypes'
 
 // Score colours: >=70 forest, 40-69 amber, <40 red (rounded first)
 function scoreClass(score) {
@@ -98,7 +99,7 @@ export default function SessionHistory({ studentId }) {
   }
   const totalItems      = countedItems.length
   const completedItems  = countedItems.filter(i => i.status === 'completed').length
-  const scoredResponses = countedItems.filter(i => i.status === 'completed').map(i => i.studentResponses?.[0]).filter(r => r?.score != null)
+  const scoredResponses = countedItems.filter(i => i.status === 'completed').map(itemResult).filter(r => r?.score != null)
   const avgScore        = scoredResponses.length
     ? Math.round(scoredResponses.reduce((sum, r) => sum + r.score, 0) / scoredResponses.length)
     : null
@@ -177,7 +178,7 @@ function HistorySession({ session, now, ordinal }) {
 
   const items = (session.items || []).slice().sort((a, b) => a.sequenceOrder - b.sequenceOrder)
   const completed = items.filter(i => i.status === 'completed')
-  const responses = items.flatMap(i => i.studentResponses || []).filter(r => r.score != null)
+  const responses = items.flatMap(i => i.studentResponses?.length ? i.studentResponses : [itemResult(i)]).filter(r => r?.score != null)
   const avgScore = responses.length ? Math.round(responses.reduce((s, r) => s + r.score, 0) / responses.length) : null
 
   // Always UK time, whatever the device's time zone
@@ -252,7 +253,7 @@ function HistorySession({ session, now, ordinal }) {
             <ul className="space-y-1">
               {items.map(it => {
                 const isDone = it.status === 'completed'
-                const resp = it.studentResponses?.[0]
+                const resp = itemResult(it)
                 const title = it.customTitle || it.sheet?.title || 'Untitled'
                 return (
                   <li key={it.id} className="text-xs flex items-start gap-2">

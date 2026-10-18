@@ -147,7 +147,14 @@ router.get('/students', requireRole('manager', 'tutor'), async (req, res, next) 
         studentPlans: {
           where: { status: 'active', ...planFilter },
           include: {
-            items: { include: { studentResponses: { orderBy: { createdAt: 'desc' }, take: 1 } } }
+            items: { include: { studentResponses: { orderBy: { createdAt: 'desc' }, take: 1 } } },
+            // Lessons already held: taught on paper or with tasks ticked off still counts as work
+            sessions: {
+              where: { scheduledAt: { lte: new Date() } },
+              select: { scheduledAt: true, attendedAt: true, _count: { select: { items: true } } },
+              orderBy: { scheduledAt: 'desc' },
+              take: 10,
+            },
           },
           orderBy: { createdAt: 'desc' },
           take: 1
@@ -174,12 +181,20 @@ router.get('/students', requireRole('manager', 'tutor'), async (req, res, next) 
       const progress = total > 0 ? Math.round((done / total) * 100) : 0;
 
       const allResponses = plan.items.flatMap(i => i.studentResponses);
-      const lastActivity = allResponses.length > 0
-        ? allResponses.sort((a, b) => b.createdAt - a.createdAt)[0].createdAt
-        : null;
-      // Only responses with an actual score count toward the average
-      const scored = allResponses.filter(r => r.score != null);
-      const avgScore = scored.length > 0 ? scored.reduce((sum, r) => sum + r.score, 0) / scored.length : null;
+      // Last sign of work: a submitted/marked sheet, or a past lesson that was
+      // attended or had work planned in it
+      const activity = [
+        ...allResponses.map(r => r.createdAt),
+        ...plan.sessions.filter(x => x.attendedAt || x._count.items > 0).map(x => x.attendedAt || x.scheduledAt),
+      ];
+      const lastActivity = activity.length > 0 ? new Date(Math.max(...activity.map(d => d.getTime()))) : null;
+      // Only results with an actual score count toward the average (sheets,
+      // plus custom tasks given a score when marked done)
+      const scores = [
+        ...allResponses.filter(r => r.score != null).map(r => r.score),
+        ...plan.items.filter(i => !i.sheetId && i.status === 'completed' && i.score != null).map(i => i.score),
+      ];
+      const avgScore = scores.length > 0 ? scores.reduce((sum, v) => sum + v, 0) / scores.length : null;
       const flagReasons = [];
       if (lastActivity && lastActivity < sevenDaysAgo) flagReasons.push('No work in over a week');
       if (avgScore !== null && Math.round(avgScore) < 60) flagReasons.push(`Average score ${Math.round(avgScore)}%`);
@@ -339,6 +354,72 @@ router.post('/:id/reset-password', requireRole('manager', 'tutor'), async (req, 
     await prisma.user.update({ where: { id: targetId }, data: { passwordHash: await bcrypt.hash(newPassword, 10) } });
 
     res.json({ success: true, newPassword });
+  } catch (err) { next(err); }
+});
+
+// GET /api/users/:id/tutor-overview (manager only)
+// A tutor's students at a glance: each student's last lesson (how much was
+// done, average score) and their upcoming lessons (how much is planned), so
+// the manager can see what's going on without signing in as the tutor.
+router.get('/:id/tutor-overview', requireRole('manager'), async (req, res, next) => {
+  try {
+    const tutorId = parseId(req.params.id);
+    const tutor = await prisma.user.findUnique({ where: { id: tutorId }, select: { id: true, name: true, email: true, role: true } });
+    if (!tutor || !['tutor', 'manager'].includes(tutor.role)) return res.status(404).json({ error: 'Tutor not found' });
+
+    const now = Date.now();
+    const DAY = 24 * 60 * 60 * 1000;
+    const plans = await prisma.lessonPlan.findMany({
+      where: { tutorId, status: { in: ['active', 'draft'] } },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true, title: true, status: true,
+        student: {
+          select: {
+            id: true, name: true, schoolYear: true, subjectFocus: true,
+            lessonDays: { select: { dayOfWeek: true, time: true, subject: true }, orderBy: [{ dayOfWeek: 'asc' }, { time: 'asc' }] },
+          },
+        },
+        sessions: {
+          where: { scheduledAt: { gte: new Date(now - 28 * DAY), lte: new Date(now + 15 * DAY) } },
+          orderBy: { scheduledAt: 'asc' },
+          select: {
+            id: true, scheduledAt: true, attendedAt: true, durationMins: true, subject: true,
+            items: { select: { status: true, sheetId: true, score: true, studentResponses: { orderBy: { createdAt: 'desc' }, take: 1, select: { score: true } } } },
+          },
+        },
+      },
+    });
+
+    const isOver = s => !!s.attendedAt || s.scheduledAt.getTime() + (s.durationMins || 60) * 60000 <= now;
+    const summarise = s => {
+      const scores = s.items.map(i => i.studentResponses[0]?.score ?? (i.sheetId ? null : i.score)).filter(v => v != null);
+      return {
+        id: s.id, scheduledAt: s.scheduledAt, attendedAt: s.attendedAt, subject: s.subject,
+        planned: s.items.length,
+        done: s.items.filter(i => i.status === 'completed').length,
+        avgScore: scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null,
+      };
+    };
+
+    // One row per student (their newest active plan with this tutor)
+    const seen = new Set();
+    const students = [];
+    for (const p of plans.sort((a, b) => (a.status === 'active' ? 0 : 1) - (b.status === 'active' ? 0 : 1))) {
+      if (seen.has(p.student.id)) continue;
+      seen.add(p.student.id);
+      const past = p.sessions.filter(isOver);
+      const lastHeld = [...past].reverse().find(s => s.attendedAt || s.items.length) || null;
+      const upcoming = p.sessions.filter(s => !isOver(s)).slice(0, 4);
+      students.push({
+        student: p.student,
+        plan: { id: p.id, title: p.title, status: p.status },
+        lastLesson: lastHeld && summarise(lastHeld),
+        upcoming: upcoming.map(summarise),
+      });
+    }
+    students.sort((a, b) => a.student.name.localeCompare(b.student.name));
+    res.json({ tutor: { id: tutor.id, name: tutor.name, email: tutor.email }, students });
   } catch (err) { next(err); }
 });
 

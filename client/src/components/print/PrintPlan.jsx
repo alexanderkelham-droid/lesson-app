@@ -27,7 +27,17 @@ function itemKind(item) {
 }
 
 // /print/plan/:planId?session=<id|next|all|unscheduled>&answers=0|1&notes=0|1
-const SUBJECTS = { maths: 'Maths', english: 'English', both: 'English & Maths' }
+const SUBJECTS = { maths: 'Maths', english: 'English', both: 'English & Maths', '11plus': '11+' }
+
+// The lesson's own subject (maths vs English lesson), else what the sheets
+// are, else the student's overall focus — same rule as the original-PDF packs
+function coverSubject(subject, items, student) {
+  if (SUBJECTS[subject]) return SUBJECTS[subject]
+  const fromSheets = [...new Set(items.map(i => String(i.sheet?.subject || '').toLowerCase()).filter(s => SUBJECTS[s]))]
+  if (fromSheets.length === 1) return SUBJECTS[fromSheets[0]]
+  if (fromSheets.length > 1) return SUBJECTS.both
+  return SUBJECTS[student?.subjectFocus] || ''
+}
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 
@@ -42,7 +52,7 @@ function ordinalDate(d) {
 function scoreText(item) {
   if (item.status !== 'completed') return ''
   const r = item.studentResponses?.[0]
-  if (!r) return 'done'
+  if (!r) return item.score != null ? String(Math.round(item.score)) : 'done'
   return r.score != null ? String(Math.round(r.score)) : 'TBC'
 }
 
@@ -53,7 +63,7 @@ function sheetLabel(item) {
 }
 
 // Bordered lesson sheet matching the centre's paper template
-function LessonSheet({ student, tutor, date, items, showNotes, emptyLabel }) {
+function LessonSheet({ student, tutor, date, items, showNotes, emptyLabel, subject }) {
   // Homework tasks go in the Homework row, like the paper sheet
   const homework = items.filter(isHomework)
   const rows = items.filter(i => !isHomework(i))
@@ -76,7 +86,7 @@ function LessonSheet({ student, tutor, date, items, showNotes, emptyLabel }) {
           <td />
         </tr>
         <tr className="ls-meta">
-          <td colSpan={2}>{[SUBJECTS[student?.subjectFocus], student?.schoolYear].filter(Boolean).join(' · ')}</td>
+          <td colSpan={2}>{[coverSubject(subject, items, student), student?.schoolYear].filter(Boolean).join(' · ')}</td>
           <td>Tutor: {tutor?.name || ''}</td>
           <td className="ls-score-head">Score%</td>
         </tr>
@@ -169,6 +179,7 @@ export default function PrintPlan() {
             items={items}
             showNotes={notes}
             emptyLabel={scopeLabel}
+            subject={data.session?.subject}
           />
 
           {notes && (data.session?.notes || plan.studentNotes || noteItems.length > 0) && (

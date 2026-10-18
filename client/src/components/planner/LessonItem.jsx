@@ -2,7 +2,7 @@ import { useState, useEffect, useId } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { Check, ClipboardList, CornerDownRight, Eye, FileText, GripVertical, StickyNote, Trash2 } from 'lucide-react'
-import { customTypeLabel } from '../../lib/customTypes'
+import { customTypeLabel, itemResult } from '../../lib/customTypes'
 
 export function scoreClass(score) {
   const s = Math.round(score)
@@ -12,7 +12,7 @@ export function scoreClass(score) {
 export const itemTitle = item => item.customTitle || item.sheet?.title || 'Untitled'
 
 export function StatusBadge({ item }) {
-  const score = item.studentResponses?.[0]?.score
+  const score = itemResult(item)?.score
   if (item.status === 'completed') {
     return (
       <span className="badge-success">
@@ -28,7 +28,7 @@ export function StatusBadge({ item }) {
 // One item in the selected lesson: drag handle (mouse, touch or keyboard:
 // focus the handle, press Space, use the arrow keys, Space again to drop),
 // preview, tutor note, move to another lesson, remove.
-export default function LessonItem({ item, index, moveOptions, onPreview, onSaveNote, onMove, onRemove, disabled }) {
+export default function LessonItem({ item, index, moveOptions, onPreview, onSaveNote, onMove, onRemove, disabled, selected = false, onToggleSelect }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id, disabled })
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.6 : 1 }
   const [noteOpen, setNoteOpen] = useState(!!item.tutorNotes)
@@ -52,8 +52,17 @@ export default function LessonItem({ item, index, moveOptions, onPreview, onSave
   const iconBtn = 'p-1.5 rounded-md text-gray-400 hover:text-gray-900 hover:bg-gray-100 transition-colors flex-shrink-0'
 
   return (
-    <li ref={setNodeRef} style={style} className="bg-white border border-gray-200 rounded-xl shadow-card list-none">
+    <li ref={setNodeRef} style={style} className={`border rounded-xl shadow-card list-none ${selected ? 'bg-redwood-50 border-redwood-200' : 'bg-white border-gray-200'}`}>
       <div className="flex items-center gap-2 p-3">
+        {onToggleSelect && (
+          <input
+            type="checkbox"
+            className="accent-redwood-600 flex-shrink-0"
+            checked={selected}
+            onChange={() => onToggleSelect(item)}
+            aria-label={`Select ${title}`}
+          />
+        )}
         <button
           type="button"
           {...attributes}
